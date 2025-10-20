@@ -1,31 +1,57 @@
 import React from 'react';
-import { View, Button, StyleSheet } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { View, Image, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
-//import CustomButton from '../components/CustomButton';
 
-type StartScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Start'>;
+type StartScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Start'>;
 
-const StartScreen: React.FC = () => {
-  const navigation = useNavigation<StartScreenNavigationProp>();
+type Props = {
+  navigation: StartScreenNavigationProp;
+};
 
+const StartScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.container}>
-      <Button title="이미 계정이 있어요" onPress={() => navigation.navigate('Login')} />
-      <Button title="계정을 만들래요" onPress={() => navigation.navigate('Signup')} />
+      <Image
+        //source={require('../../assets/start-image.png')} // 이미지 경로 수정 필요
+        //style={styles.image}
+      />
+
+      <TouchableOpacity
+        style={styles.loginButton}
+        onPress={() => navigation.navigate('Login')}>
+        <Text style={styles.loginText}>이미 계정이 있어요</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.signupButton}
+        onPress={() => navigation.navigate('Signup')}>
+        <Text style={styles.signupText}>계정을 만들래요</Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
-export default StartScreen;
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white' },
+  image: { width: 250, height: 250, marginBottom: 60, resizeMode: 'contain' },
+  loginButton: {
+    backgroundColor: '#5E8BFF',
+    width: '80%',
+    paddingVertical: 20,
+    borderRadius: 20,
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
+    marginBottom: 15,
   },
+  signupButton: {
+    backgroundColor: '#d9d9d9',
+    width: '80%',
+    paddingVertical: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  loginText: { color: 'white', fontWeight: 'bold', fontSize: 18 },
+  signupText: { color: '#111', fontWeight: 'bold', fontSize: 18 },
 });
+
+export default StartScreen;
