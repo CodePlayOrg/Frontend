@@ -5,7 +5,7 @@ import StartScreen from '../screens/StartScreen';
 import SignupScreen from '../screens/SignupScreen';
 import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
-import MypageScreen from '../screens/MypageScreen';
+import ProfileScreen from '../screens/MypageScreen';
 
 export type RootStackParamList = {
   Start: undefined;
@@ -24,8 +24,8 @@ const AppNavigator = () => {
         <Stack.Screen name="Start" component={StartScreen} options={{ title: '시작 화면' }} />
         <Stack.Screen name="Signup" component={SignupScreen} options={{ title: '회원가입' }}/>
         <Stack.Screen name="Login" component={LoginScreen} options={{ title: '로그인' }}/>
-          <Stack.Screen name="Home" component={HomeScreen} options={{ title: '홈화면' }} />
-        <Stack.Screen name="Profile" component={MypageScreen} options={{ title: '나의 프로필' }} />
+        <Stack.Screen name="Home" component={HomeScreen} options={{ title: '홈화면' }} />
+        <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: '나의 프로필' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

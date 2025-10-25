@@ -15,8 +15,6 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
 
-const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
 
 type Coordinates = {
     latitude: number;
@@ -24,6 +22,7 @@ type Coordinates = {
   };
   
 const HomeScreen = () => {
+    const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
     
     const [region, setRegion] = useState<Region>({
         latitude: 37.5665,

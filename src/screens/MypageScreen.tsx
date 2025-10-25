@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
+  ScrollView,
   Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -35,13 +36,15 @@ const ProfileScreen: React.FC = () => {
     ]);
   };
   return (
-    <View style={styles.container}>
-      <Text style={styles.welcomeText}>
-        안녕하세요, <Text style={styles.highlight}>{nickname || '사용자'}</Text> 님
-      </Text>
+    <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <View style={styles.container}>
+        <Text style={styles.welcomeText}>
+          안녕하세요, <Text style={styles.highlight}>{nickname ? nickname : '사용자'}
+          </Text>{' '}
+          님!
+        </Text>
 
-      {/* 프로필 섹션 */}
-      <View style={styles.profileSection}>
+        <View style={styles.profileSection}>
         <Image
           source={
             profileImage
@@ -50,17 +53,17 @@ const ProfileScreen: React.FC = () => {
           }
           style={styles.profileImage}
         />
-        <View style={styles.profileButtons}>
-          <TouchableOpacity style={styles.grayButton} onPress={handleSelectFromAlbum}>
+          <View style={styles.profileButtons}>
+          <TouchableOpacity style={styles.AlbumButton} onPress={handleSelectFromAlbum}>
             <Text>앨범에서 가져오기</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.grayButton} onPress={handleSetAvatar}>
+          <TouchableOpacity style={styles.AvataButton} onPress={handleSetAvatar}>
             <Text>아바타 설정하기</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* 닉네임 입력 */}
+        </View>
+        
+        {/* 닉네임 입력 */}
       <View style={styles.inputContainer}>
         <Text style={styles.label}>친구에게 보이는 별명</Text>
         <TextInput
@@ -71,7 +74,8 @@ const ProfileScreen: React.FC = () => {
         />
       </View>
 
-      {/* 시간표 등록 섹션 */}
+
+        {/* 시간표 등록 섹션 */}
       <Text style={styles.subTitle}>내 시간표 설정하기</Text>
       <View style={styles.scheduleContainer}>
         {hasSchedule ? (
@@ -91,20 +95,28 @@ const ProfileScreen: React.FC = () => {
         <Text style={styles.logoutText}>로그아웃</Text>
       </TouchableOpacity>
     </View>
+    </ScrollView>
   );
 };
 export default ProfileScreen;
 
 const styles = StyleSheet.create({
+    scrollContainer: {
+      flexGrow: 1,
+      backgroundColor: '#fff',
+    },
     container: {
       flex: 1,
-      padding: 24,
+      paddingHorizontal: 24,
+      paddingTop: 80, // 🔹 상단 여백 늘림 (기존 24 → 80)
+      paddingBottom: 40, // 🔹 하단 여백 추가
       backgroundColor: '#fff',
     },
     welcomeText: {
       fontSize: 24,
       fontWeight: 'bold',
-      marginBottom: 16,
+      marginBottom: 24,
+      textAlign: 'center',
     },
     highlight: {
       color: '#2563EB',
@@ -114,25 +126,34 @@ const styles = StyleSheet.create({
     profileSection: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 16,
+      marginBottom: 24,
     },
     profileImage: {
-      width: 100,
-      height: 100,
+      width: 120,
+      height: 120,
       backgroundColor: '#BFDBFE',
-      borderRadius: 50,
+      borderRadius: 60,
       borderWidth: 2,
       borderColor: '#1E3A8A',
     },
     profileButtons: {
       marginLeft: 16,
     },
-    grayButton: {
+    AlbumButton: {
       backgroundColor: '#E5E7EB',
       borderRadius: 8,
       paddingVertical: 8,
       paddingHorizontal: 16,
       marginBottom: 8,
+      textAlign: 'center',
+    },
+    AvataButton: {
+        backgroundColor: '#E5E7EB',
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        marginBottom: 8,
+        textAlign: 'center',
     },
     inputContainer: {
       marginBottom: 24,
@@ -149,9 +170,9 @@ const styles = StyleSheet.create({
       padding: 8,
     },
     subTitle: {
-      fontWeight: '600',
-      color: '#555',
-      marginBottom: 8,
+        fontWeight: '600',
+        color: '#555',
+        marginBottom: 8,
     },
     scheduleContainer: {
       backgroundColor: '#F9FAFB',
@@ -161,15 +182,15 @@ const styles = StyleSheet.create({
       shadowColor: '#000',
       shadowOpacity: 0.1,
       shadowRadius: 6,
-      marginBottom: 24,
+      marginBottom: 32,
     },
     addButton: {
-      alignItems: 'center',
-    },
-    addText: {
-      color: '#1E3A8A',
-      marginTop: 8,
-    },
+        alignItems: 'center',
+      },
+      addText: {
+        color: '#1E3A8A',
+        marginTop: 8,
+      },
     scheduleText: {
       fontWeight: 'bold',
       fontSize: 16,
