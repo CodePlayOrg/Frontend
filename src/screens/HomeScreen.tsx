@@ -11,6 +11,12 @@ import {
 import MapView, { Marker, Region } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigations/AppNavigator';
+
+const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
 
 type Coordinates = {
     latitude: number;
@@ -95,7 +101,7 @@ const HomeScreen = () => {
             <TouchableOpacity style={styles.friendButton}>
               <Icon name="people-outline" size={28} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.profileButton}>
+            <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
               <Icon name="person-circle-outline" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
