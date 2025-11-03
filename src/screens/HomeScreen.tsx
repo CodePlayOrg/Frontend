@@ -7,6 +7,7 @@ import {
     PermissionsAndroid,
     Platform,
     Text,
+    Image,
   } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
@@ -75,7 +76,7 @@ const HomeScreen = () => {
 
     return (
         <View style={styles.container}>
-          {/* ✅ 지도 영역 */}
+          {/* 지도 영역 */}
           <MapView
             style={styles.map}
             region={region}
@@ -87,7 +88,7 @@ const HomeScreen = () => {
             )}
           </MapView>
     
-          {/* 🔍 상단 검색창 */}
+          {/* 상단 검색창 */}
           <View style={styles.searchContainer}>
             <TextInput style={styles.searchInput} placeholder="장소를 검색하세요" />
             <TouchableOpacity style={styles.searchButton}>
@@ -95,13 +96,19 @@ const HomeScreen = () => {
             </TouchableOpacity>
           </View>
     
-          {/* 👇 하단 버튼 2개 */}
+          {/* 하단 버튼 2개 */}
           <View style={styles.bottomButtons}>
             <TouchableOpacity style={styles.friendButton}>
-              <Icon name="people-outline" size={28} color="#fff" />
+            <Image
+      source={require('../../assets/friend_icon.png')}
+      style={styles.buttonIcon}
+    />
             </TouchableOpacity>
             <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
-              <Icon name="person-circle-outline" size={28} color="#fff" />
+            <Image
+      source={require('../../assets/me_icon.png')}
+      style={styles.buttonIcon_ME}
+    />
             </TouchableOpacity>
           </View>
         </View>
@@ -118,13 +125,15 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     position: 'absolute',
-    top: 70,
+    top: 80,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 25,
+    borderRadius: 30,
     paddingHorizontal: 10,
+    borderWidth: 2,
+    borderColor: '#7288FF',
     elevation: 5,
   },
   searchInput: {
@@ -137,30 +146,47 @@ const styles = StyleSheet.create({
     backgroundColor: '#7288FF',
     borderRadius: 20,
     paddingVertical: 8,
-    paddingHorizontal: 15, // 🔹 텍스트가 잘 들어가도록 약간 넓혀줌
+    paddingHorizontal: 15, // 텍스트가 잘 들어가도록 약간 넓혀줌
     marginLeft: 8,
   },
   bottomButtons: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 70,
     flexDirection: 'row',
     alignSelf: 'center',
-    gap: 20,
+    gap: 150,
   },
   friendButton: {
     backgroundColor: '#7288FF',
-    borderRadius: 50,
-    width: 60,
-    height: 60,
+    borderRadius: 30,
+    width: 100,
+    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000000',
+    boxShadow :  "0 4px 6px rgba(0, 0, 0, 0.3), inset 0 4px 6px rgba(0, 0, 0, 0.3)",
   },
   profileButton: {
-    backgroundColor: '#C0C0C0',
-    borderRadius: 50,
-    width: 60,
-    height: 60,
+    backgroundColor: '#fff',
+    borderRadius: 30,
+    width: 100,
+    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000000',
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3), inset 0 4px 6px rgba(0, 0, 0, 0.3)", 
   },
+  buttonIcon: {
+    width:45,  
+    height: 45,
+    tintColor: '#000000', 
+  },
+  buttonIcon_ME: {
+    width:60,  
+    height: 60,
+    tintColor: '#000000', 
+  },
+  
 });
