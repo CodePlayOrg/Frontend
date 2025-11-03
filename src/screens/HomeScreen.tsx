@@ -42,7 +42,14 @@ const HomeScreen = () => {
         getCurrentPosition();
         } else {
         const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            {
+              title: '위치 권한 요청',
+              message: '현재 위치를 표시하려면 위치 권한이 필요합니다.',
+              buttonNeutral: '나중에',
+              buttonNegative: '거부',
+              buttonPositive: '허용',
+            },
         );
         if (granted === PermissionsAndroid.RESULTS.GRANTED) {
             getCurrentPosition();
