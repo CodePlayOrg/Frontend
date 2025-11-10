@@ -1,127 +1,124 @@
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    PermissionsAndroid,
-    Platform,
-    Text,
-    Image,
-  } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+  View,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  PermissionsAndroid,
+  Platform,
+  Text,
+  Image,
+} from 'react-native';
+import { NaverMapView, NaverMapMarkerOverlay } from '@mj-studio/react-native-naver-map';
 import Geolocation from '@react-native-community/geolocation';
-import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
 
-
 type Coordinates = {
-    latitude: number;
-    longitude: number;
-  };
-  
+  latitude: number;
+  longitude: number;
+};
+
 const HomeScreen = () => {
-    const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-    
-    const [region, setRegion] = useState<Region>({
-        latitude: 37.5665,
-        longitude: 126.9780,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-    });//초깃값은 서울로 설정, 앱 실행 직후 위치를 못 받아오면 이 좌표가 보임
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const [location, setLocation] = useState({
+    latitude: 37.5665,
+    longitude: 126.9780,
+  });
 
-    const [myLocation, setMyLocation] = useState<Coordinates | null>(null);
-
-    //iOS & Android 위치 권한 요청 및 현재 위치 설정
-    const requestLocationPermission = async () => {
-        if (Platform.OS === 'ios') {
-        // @ts-ignore
-        Geolocation.requestAuthorization('whenInUse');
-        getCurrentPosition();
-        } else {
-        const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-            {
-              title: '위치 권한 요청',
-              message: '현재 위치를 표시하려면 위치 권한이 필요합니다.',
-              buttonNeutral: '나중에',
-              buttonNegative: '거부',
-              buttonPositive: '허용',
-            },
-        );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-            getCurrentPosition();
-        } else {
-            console.log('위치 권한 거부됨');
+  // iOS & Android 위치 권한 요청 및 현재 위치 설정
+  const requestLocationPermission = async () => {
+    if (Platform.OS === 'ios') {
+      // @ts-ignore
+      Geolocation.requestAuthorization('whenInUse');
+      getCurrentPosition();
+    } else {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: '위치 권한 요청',
+          message: '현재 위치를 표시하려면 위치 권한이 필요합니다.',
+          buttonNeutral: '나중에',
+          buttonNegative: '거부',
+          buttonPositive: '허용',
         }
-        }
-    };
-
-    const getCurrentPosition = () => { //위치 가져오기
-        Geolocation.getCurrentPosition(
-            position => {
-                const { latitude, longitude } = position.coords;
-                setRegion({
-                    ...region,
-                    latitude,
-                    longitude,
-                });
-                setMyLocation({ latitude, longitude });
-            },
-            error => {
-                console.log('위치 가져오기 실패: ', error);
-            },
-            {enableHighAccuracy: true, timeout : 15000, maximumAge : 10000} //GPS 우선 사용, 응답 대기 시간, 캐시 허용 시간
-
-        );
-    };
-    useEffect(() => {
-        requestLocationPermission();
-    }, []);
-
-    return (
-        <View style={styles.container}>
-          {/* 지도 영역 */}
-          <MapView
-            style={styles.map}
-            region={region}
-            showsUserLocation={true}
-            onRegionChangeComplete={setRegion}
-          >
-            {myLocation && (
-              <Marker coordinate={myLocation} title="내 위치" />
-            )}
-          </MapView>
-    
-          {/* 상단 검색창 */}
-          <View style={styles.searchContainer}>
-            <TextInput style={styles.searchInput} placeholder="장소를 검색하세요" />
-            <TouchableOpacity style={styles.searchButton}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Search</Text>
-            </TouchableOpacity>
-          </View>
-    
-          {/* 하단 버튼 2개 */}
-          <View style={styles.bottomButtons}>
-            <TouchableOpacity style={styles.friendButton}>
-            <Image
-      source={require('../../assets/friend_icon.png')}
-      style={styles.buttonIcon}
-    />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
-            <Image
-      source={require('../../assets/me_icon.png')}
-      style={styles.buttonIcon_ME}
-    />
-            </TouchableOpacity>
-          </View>
-        </View>
       );
-    };
-    export default HomeScreen;
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+        getCurrentPosition();
+      } else {
+        console.log('위치 권한 거부됨');
+      }
+    }
+  };
+
+  // 위치 가져오기
+  const getCurrentPosition = () => {
+    Geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setLocation({ latitude, longitude });
+        console.log('현재 위치:', latitude, longitude);
+
+      },
+      (error) => {
+        console.log('위치 가져오기 실패: ', error);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+  };
+
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  return (
+    <View style={styles.container}>
+      {/* ✅ 네이버 지도 표시 */}
+      <NaverMapView
+        style={styles.map}
+        camera={{ latitude: location.latitude as number, longitude: location.longitude as number, zoom: 14 }}
+        isShowLocationButton={true}
+        isShowCompass={true}
+      >
+        <NaverMapMarkerOverlay
+          latitude={location.latitude}
+          longitude={location.longitude}
+          caption={{ text: 'ME' }}
+        />
+      </NaverMapView>
+
+      {/* 🔍 상단 검색창 */}
+      <View style={styles.searchContainer}>
+        <TextInput style={styles.searchInput} placeholder="장소를 검색하세요" />
+        <TouchableOpacity style={styles.searchButton}>
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Search</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 👇 하단 버튼 2개 */}
+      <View style={styles.bottomButtons}>
+        <TouchableOpacity style={styles.friendButton}>
+          <Image
+            source={require('../../assets/friend_icon.png')}
+            style={styles.buttonIcon}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.profileButton}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <Image
+            source={require('../../assets/me_icon.png')}
+            style={styles.buttonIcon_ME}
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+export default HomeScreen;
 
 const styles = StyleSheet.create({
   container: {
@@ -153,7 +150,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#7288FF',
     borderRadius: 20,
     paddingVertical: 8,
-    paddingHorizontal: 15, // 텍스트가 잘 들어가도록 약간 넓혀줌
+    paddingHorizontal: 15,
     marginLeft: 8,
   },
   bottomButtons: {
@@ -172,7 +169,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#000000',
-    boxShadow :  "0 4px 6px rgba(0, 0, 0, 0.3), inset 0 4px 6px rgba(0, 0, 0, 0.3)",
   },
   profileButton: {
     backgroundColor: '#fff',
@@ -183,17 +179,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#000000',
-    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3), inset 0 4px 6px rgba(0, 0, 0, 0.3)", 
   },
   buttonIcon: {
-    width:45,  
+    width: 45,
     height: 45,
-    tintColor: '#000000', 
+    tintColor: '#000000',
   },
   buttonIcon_ME: {
-    width:60,  
+    width: 60,
     height: 60,
-    tintColor: '#000000', 
+    tintColor: '#000000',
   },
-  
 });
