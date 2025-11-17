@@ -10,6 +10,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        
         maven {
             url 'https://repository.map.naver.com/archive/maven'
         }
@@ -20,5 +21,33 @@ buildscript {
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
     }
 }
+
+
+subprojects { subproj ->
+    afterEvaluate {
+        if (subproj.plugins.hasPlugin('com.android.library')) {
+            subproj.android {
+                // 라이브러리에도 루트 값을 강제 주입
+                compileSdkVersion rootProject.ext.compileSdkVersion
+                defaultConfig {
+                    minSdkVersion rootProject.ext.minSdkVersion
+                    targetSdkVersion rootProject.ext.targetSdkVersion
+                }
+            }
+        }
+    }
+}
+
+
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://repository.map.naver.com/archive/maven" }
+        maven { url "https://www.jitpack.io" }
+    }
+}
+
 
 apply plugin: "com.facebook.react.rootproject"

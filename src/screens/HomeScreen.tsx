@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,8 +10,9 @@ import {
   Image,
 } from 'react-native';
 import { NaverMapView, NaverMapMarkerOverlay } from '@mj-studio/react-native-naver-map';
+
 import Geolocation from '@react-native-community/geolocation';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation , useFocusEffect} from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
 
@@ -72,20 +73,43 @@ const HomeScreen = () => {
     requestLocationPermission();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      // 화면에 다시 들어올 때마다 맵을 새로 마운트
+      setMapKey(prev => prev + 1);
+    }, []),
+  );
+
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [mapKey, setMapKey] = useState(0);
+
   return (
     <View style={styles.container}>
       {/* ✅ 네이버 지도 표시 */}
+      
+
       <NaverMapView
+        key={mapKey} 
         style={styles.map}
-        camera={{ latitude: location.latitude as number, longitude: location.longitude as number, zoom: 14 }}
+        initialCamera={{
+          latitude: location.latitude,
+          longitude: location.longitude,
+          zoom: 14,
+        }}
         isShowLocationButton={true}
         isShowCompass={true}
+        onInitialized={() => {
+        console.log('지도 초기화 완료');
+        setIsMapReady(true);
+      }}
       >
+        {isMapReady && (
         <NaverMapMarkerOverlay
           latitude={location.latitude}
           longitude={location.longitude}
           caption={{ text: 'ME' }}
         />
+      )}
       </NaverMapView>
 
       {/* 🔍 상단 검색창 */}
@@ -98,10 +122,14 @@ const HomeScreen = () => {
 
       {/* 👇 하단 버튼 2개 */}
       <View style={styles.bottomButtons}>
-        <TouchableOpacity style={styles.friendButton}>
+        <TouchableOpacity 
+          style={styles.friendButton}
+          onPress={() => navigation.navigate('Friends')}
+          >
           <Image
             source={require('../../assets/friend_icon.png')}
             style={styles.buttonIcon}
+            
           />
         </TouchableOpacity>
         <TouchableOpacity
