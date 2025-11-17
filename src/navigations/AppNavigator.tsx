@@ -7,6 +7,8 @@ import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/MypageScreen';
 import FriendsScreen from '../screens/FriendsScreen';
+import TimetableScreen from '../screens/TimetableScreen';
+import TimetableEditScreen from '../screens/EditTimetableScreen';
 
 export type RootStackParamList = {
   Start: undefined;
@@ -15,6 +17,8 @@ export type RootStackParamList = {
   Home: undefined;
   Profile : undefined;
   Friends: undefined;
+  Timetable: undefined;
+  TimetableEdit: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -29,6 +33,8 @@ const AppNavigator = () => {
         <Stack.Screen name="Home" component={HomeScreen} options={{ title: '홈화면' }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: '나의 프로필' }} />
         <Stack.Screen name="Friends" component={FriendsScreen} options={{ title: '친구창' }} />
+        <Stack.Screen name="Timetable" component={TimetableScreen} options={{ title: '시간표' }}/>
+        <Stack.Screen name="TimetableEdit" component={TimetableEditScreen} options={{ title: '시간표수정' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
