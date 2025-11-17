@@ -1,4 +1,14 @@
-pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+pluginManagement { 
+    
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+    
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://repository.map.naver.com/archive/maven" }
+        maven { url "https://www.jitpack.io" } // jitpack 쓰는 라이브러리 있을 때만 유지
+    }
+ }
 plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'Codeplay'
