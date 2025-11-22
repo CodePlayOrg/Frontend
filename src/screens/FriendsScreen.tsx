@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,14 @@ import {
   ScrollView,
   Animated,
   PanResponder,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../navigations/AppNavigator';
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
 type FriendStatus = '수업 중' | '수업 없음';
 
@@ -28,32 +32,6 @@ type Friend = {
 
 type FriendsNav = StackNavigationProp<RootStackParamList, 'Friends'>;
 
-const INITIAL_FRIENDS: Friend[] = [
-  {
-    id: '1',
-    name: '최서영',
-    studentId: '20230001',
-    status: '수업 중',
-    isFavorite: true,
-    isOn: true,
-  },
-  {
-    id: '2',
-    name: '백종은',
-    studentId: '20230002',
-    status: '수업 없음',
-    isFavorite: true,
-    isOn: true,
-  },
-  {
-    id: '3',
-    name: '이민환',
-    studentId: '20230003',
-    status: '수업 중',
-    isFavorite: false,
-    isOn: true,
-  },
-];
 
 const CARD_BORDER = '#C8D3FF';
 const PRIMARY = '#7288FF';
@@ -61,8 +39,13 @@ const PRIMARY = '#7288FF';
 const FriendsScreen: React.FC = () => {
   const navigation = useNavigation<FriendsNav>();
 
-  const [friends, setFriends] = useState<Friend[]>(INITIAL_FRIENDS);
+  const API_URL = 'http://3.34.70.142:3001/users';
+
+  // ✅ 초기 친구 목록을 빈 배열로 변경
+  const [friends, setFriends] = useState<Friend[]>([]); 
   const [query, setQuery] = useState('');
+  // ✅ 로딩 상태 추가
+  const [isLoading, setIsLoading] = useState(true); 
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [newName, setNewName] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
@@ -74,6 +57,53 @@ const FriendsScreen: React.FC = () => {
   // 바텀시트 애니메이션 & 드래그
   const [sheetAnim] = useState(new Animated.Value(0));
 
+  const fetchFriends = async () => {
+    // ⚠️ 토큰 키가 'userToken'이라고 가정합니다. 실제 키를 사용하세요.
+    const token = await AsyncStorage.getItem('userToken'); 
+
+    if (!token) {
+      setIsLoading(false);
+      console.error('인증 토큰을 찾을 수 없습니다. 로그인 상태를 확인하세요.');
+      return;
+    }
+
+    try {
+      // ✅ fetch 대신 axios.get 사용
+      const response = await axios.get(`${API_URL}/my_friend_list_show`, {
+        headers: {
+          'Content-Type': 'application/json',
+          // ⚠️ 이전에 백엔드는 'token' 헤더를 사용하도록 설계되었으나, 
+          // 요청하신 대로 표준 'Authorization' 헤더를 사용합니다.
+          // 백엔드 코드가 'Authorization' 헤더를 받도록 수정되었는지 확인해야 합니다.
+          'Authorization': `Bearer ${token}`, 
+        },
+      });
+
+      // Axios는 응답 데이터가 response.data에 자동으로 담깁니다.
+      const data = response.data;
+      
+      // 백엔드가 { my_friend_list_show: Friend[] } 형태를 반환한다고 가정
+      if (data.my_friend_list_show) {
+        setFriends(data.my_friend_list_show);
+      }
+    } catch (error) {
+      // Axios는 4xx/5xx 오류 시 catch로 넘어오며, error 객체에 상세 정보가 포함됩니다.
+      if (axios.isAxiosError(error) && error.response) {
+          console.error('친구 목록 Axios 오류! 상태 코드:', error.response.status);
+          console.error('서버 오류 응답 본문:', error.response.data);
+      } else {
+          console.error('친구 목록을 불러오는 데 실패했습니다:', error);
+      }
+    } finally {
+      // 로딩 상태 해제
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFriends();
+  }, []);
+
   const filteredFriends = useMemo(() => {
     const trimmed = query.trim();
     if (!trimmed) return friends;
@@ -81,6 +111,7 @@ const FriendsScreen: React.FC = () => {
       f.name.toLowerCase().includes(trimmed.toLowerCase()),
     );
   }, [friends, query]);
+
 
   const toggleFavorite = (id: string) => {
     setFriends((prev) =>
@@ -98,22 +129,79 @@ const FriendsScreen: React.FC = () => {
     );
   };
 
-  const handleAddFriend = () => {
-    if (!newName.trim() || !newStudentId.trim()) {
+  const handleAddFriend = async () => {
+    const name = newName.trim();
+    const studentId = newStudentId.trim();
+
+    if (!name || !studentId) {
+      Alert.alert('친구 이름과 학번을 모두 입력해주세요.');
       return;
     }
-    const friend: Friend = {
-      id: Date.now().toString(),
-      name: newName.trim(),
-      studentId: newStudentId.trim(),
-      status: '수업 없음',
-      isFavorite: false,
-      isOn: true,
-    };
-    setFriends((prev) => [friend, ...prev]);
-    setNewName('');
-    setNewStudentId('');
-    setIsAddModalVisible(false);
+
+    const token = await AsyncStorage.getItem('userToken');
+
+    if (!token) {
+      Alert.alert('로그인 정보가 유효하지 않습니다.');
+      return;
+    }
+    
+    // 💡 API_URL 확인: 현재 'http://localhost:3001/users' 이므로,
+    // 실제 엔드포인트는 '/users/add_friend'가 됩니다.
+    // 백엔드 라우터가 /users 경로에 마운트되어 있다고 가정합니다.
+    const endpoint = `${API_URL}/add_friend`; 
+
+    try {
+      // 1. 서버에 친구 추가 요청
+      // 백엔드가 name과 studentId를 req.body로 요구하므로 이 둘을 전송합니다.
+      const response = await axios.post(endpoint, {
+        name: name,         // 👈 백엔드에 맞춰 name 전송
+        studentId: studentId, // 👈 백엔드에 맞춰 studentId 전송
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          // ⚠️ 백엔드가 req.headers.token을 요구하므로, 
+          // 헤더 이름을 'token'으로 변경하고 Bearer 프리픽스를 제거합니다.
+          'token': token, 
+        },
+      });
+
+      // 2. 서버 응답 처리 (성공 시 res.send(메시지)를 받습니다.)
+      
+      // 서버 응답 메시지를 사용자에게 표시
+      const serverMessage = response.data; // 서버가 보낸 문자열 메시지
+      Alert.alert(serverMessage); 
+
+      // 3. 클라이언트 상태 업데이트 (화면에 바로 표시)
+      // 서버에서 친구 추가에 성공했으므로, 현재 목록에 추가합니다.
+      const newFriend: Friend = {
+        id: Date.now().toString(), 
+        name: name,
+        studentId: studentId,
+        status: '수업 없음',
+        isFavorite: false,
+        isOn: true,
+      };
+      
+      setFriends((prev) => [newFriend, ...prev]);
+      
+      // 4. 입력 필드 초기화 및 모달 닫기
+      setNewName('');
+      setNewStudentId('');
+      setIsAddModalVisible(false);
+
+    } catch (error) {
+      let errorMessage = '알 수 없는 오류로 친구 추가에 실패했습니다.';
+      
+      if (axios.isAxiosError(error) && error.response) {
+        console.error('친구 추가 오류:', error.response.status, error.response.data);
+        
+        // 400, 404 등 오류 시 서버에서 보낸 메시지(res.status(400).send('...'))를 사용
+        errorMessage = error.response.data || `서버 오류: ${error.response.status}`;
+      } else {
+        console.error('친구 추가 실패:', error);
+      }
+      Alert.alert(errorMessage);
+    }
   };
 
   const openDetailSheet = (friend: Friend) => {
@@ -205,6 +293,12 @@ const FriendsScreen: React.FC = () => {
 
         <View style={styles.divider} />
 
+        {/* ✅ 로딩 상태 처리 부분 */}
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>친구 목록을 불러오는 중…</Text>
+          </View>
+        ) : (
         <ScrollView
           contentContainerStyle={styles.friendList}
           showsVerticalScrollIndicator={false}
@@ -254,6 +348,7 @@ const FriendsScreen: React.FC = () => {
             ))
           )}
         </ScrollView>
+        )}
       </View>
 
       {/* 친구 추가 모달 */}
@@ -784,6 +879,17 @@ const styles = StyleSheet.create({
   timeTableButtonText: {
     fontSize: 13,
     color: '#4A4E71',
+    fontWeight: '500',
+  },
+  loadingContainer: { // ✅ 추가된 스타일
+    paddingVertical: 40,
+    alignItems: 'center',
+    height: 200, // 카드의 최소 높이를 유지하기 위해 적절히 설정
+    justifyContent: 'center',
+  },
+  loadingText: { // ✅ 추가된 스타일
+    fontSize: 14,
+    color: PRIMARY, // PRIMARY는 상단에 정의된 '#7288FF'
     fontWeight: '500',
   },
 });

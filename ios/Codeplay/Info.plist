@@ -59,5 +59,21 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+    	<key>NSAllowsArbitraryLoads</key>
+    	<true/>
+	</dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+    	<key>NSExceptionDomains</key>
+    	<dict>
+        	<key>3.34.70.142</key>  
+        	<dict>
+            	<key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+            	<true/>
+        	</dict>
+    	</dict>
+	</dict>
 </dict>
 </plist>
