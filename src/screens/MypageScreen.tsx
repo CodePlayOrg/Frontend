@@ -17,15 +17,19 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
 import axios, { AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTimetable, Day } from '../context/TimetableContext';
 
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
 const UPDATE_NICKNAME_API_URL = 'http://3.34.70.142:3001/users/update_name';
 const USER_INFO_API_URL = 'http://3.34.70.142:3001/users/set_name';
+const DAYS: Day[] = ['월', '화', '수', '목', '금'];
+const HOURS = Array.from({ length: 10 }, (_, i) => 9 + i);
 
 const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
+    const { classes } = useTimetable();
     // 사용자 정보 상태
     const [nicknameInput, setNicknameInput] = useState(''); // 사용자가 입력 중인 텍스트
     const [nickname, setNickname] = useState('사용자'); // 실제 표시될 닉네임
@@ -196,6 +200,62 @@ const ProfileScreen: React.FC = () => {
             </View>
         );
     }
+    // 정사각형 미리보기
+  const TimetablePreview: React.FC = () => {
+    const boxSize = 30;
+    return (
+      <TouchableOpacity
+        style={styles.previewWrapper}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('Timetable')}
+      >
+        {/* 요일 헤더 */}
+        <View style={styles.previewRow}>
+          <View style={[styles.previewCell, { width: boxSize, height: boxSize }]} />
+          {DAYS.map(day => (
+            <View
+              key={day}
+              style={[
+                styles.previewCell,
+                { width: boxSize, height: boxSize, backgroundColor: '#E5E7EB' },
+              ]}
+            >
+              <Text style={{ fontSize: 10 }}>{day}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* 시간 블록 */}
+        {HOURS.map(hour => (
+          <View key={hour} style={styles.previewRow}>
+            <View
+              style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: '#F3F4F6' }]}
+            >
+              <Text style={{ fontSize: 8 }}>{hour}</Text>
+            </View>
+            {DAYS.map(day => {
+              const classItem = classes.find(c => c.day === day && c.start <= hour && c.end > hour);
+              return (
+                <View
+                  key={day + hour}
+                  style={[
+                    styles.previewCell,
+                    {
+                      width: boxSize,
+                      height: boxSize,
+                      backgroundColor: classItem ? '#60A5FA' : '#fff',
+                    },
+                  ]}
+                >
+                  {classItem && <Text style={{ fontSize: 8, color: '#fff' }}>{classItem.name}</Text>}
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </TouchableOpacity>
+    );
+  };
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer}>
       <View style={styles.container}>
@@ -247,29 +307,33 @@ const ProfileScreen: React.FC = () => {
         />
       </View>
 
-        {/* 시간표 등록 섹션 */}
-      <Text style={styles.subTitle}>내 시간표 설정하기</Text>
-      <View style={styles.scheduleContainer}>
-        {hasSchedule ? (
-          <TouchableOpacity onPress={() => Alert.alert('시간표 수정')}>
-            <Text style={styles.scheduleText}>대충 시간표 보임 + 시간표 수정</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.addButton} onPress={handleRegisterSchedule}>
-            <Icon name="add" size={32} color="#2563EB" />
-            <Text style={styles.addText}>시간표 등록하기</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        {/* 시간표 설정 */}
+        <Text style={styles.subTitle}>내 시간표 설정하기</Text>
+        <View style={styles.scheduleContainer}>
+          {hasSchedule ? (
+            <TimetablePreview />
+          ) : (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => {
+                setHasSchedule(true);
+                navigation.navigate('TimetableEdit');
+              }}
+            >
+              <Text style={styles.addText}>시간표 등록하기</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
-      {/* 로그아웃 버튼 */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>로그아웃</Text>
-      </TouchableOpacity>
-    </View>
+        {/* 로그아웃 버튼 스크롤 끝에 따라가도록 */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutText}>로그아웃</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
+
 export default ProfileScreen;
 
 const styles = StyleSheet.create({
@@ -397,6 +461,22 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       fontSize: 16,
       textAlign: 'center',
+    },
+    previewWrapper: {
+       marginTop: 16, 
+       borderWidth: 1, 
+       borderColor: '#DDD', 
+       borderRadius: 12, 
+       overflow: 'hidden' 
+    },
+    previewRow: { 
+      flexDirection: 'row' 
+    },
+    previewCell: { 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      borderWidth: 0.5, 
+      borderColor: '#EEE' 
     },
     logoutButton: {
       alignSelf: 'center',
