@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTimetable } from '../context/TimetableContext';
+import axios from 'axios';
 
 // 시간표 시간대
 const HOURS = Array.from({ length: 10 }, (_, i) => 9 + i);
@@ -21,33 +22,35 @@ const EditTimetableScreen: React.FC = () => {
 
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [selectedClasses, setSelectedClasses] = useState(classes); // 기존 저장된 시간표 그대로
+  const [selectedClasses, setSelectedClasses] = useState(classes);
 
-  //강의 검색
-  const searchLectures = async (text: string) => {
-    setSearchText(text);
-
-    if (text.trim().length < 1) {
-      setSearchResults([]);
+  // 🔍 검색 버튼 클릭 시 axios 실행
+  const searchLectures = async () => {
+    if (searchText.trim().length === 0) {
+      Alert.alert("검색어 없음", "검색어를 입력하세요.");
       return;
     }
 
     try {
-      // 실제 백엔드 URL로 교체
-      const res = await fetch(`https://YOUR_BACKEND_SERVER/lectures?query=${text}`);
-      const data = await res.json();
-      setSearchResults(data);
+      const response = await axios.get(
+        `https://3.34.70.142:3001/times/search`,
+        {
+          params: { keyword: searchText },
+        }
+      );
+
+      setSearchResults(response.data);
     } catch (e) {
-      console.log('검색 오류: ', e);
+      console.log("검색 오류:", e);
+      Alert.alert("검색 실패", "검색 중 문제가 발생했습니다.");
     }
   };
 
-  // 검색 결과 선택 시 시간표에 추가
   const handleSelectLecture = (lecture: any) => {
-    // 이미 추가되어 있으면 무시
     if (selectedClasses.find((c) => c.id === lecture.id)) return;
 
     setSelectedClasses((prev) => [...prev, lecture]);
+
     addClass({
       id: lecture.id,
       name: lecture.name,
@@ -57,7 +60,6 @@ const EditTimetableScreen: React.FC = () => {
     });
   };
 
-  // 저장 후 뒤로가기
   const handleSave = () => {
     navigation.goBack();
   };
@@ -66,11 +68,8 @@ const EditTimetableScreen: React.FC = () => {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>시간표 바꾸기</Text>
 
-      {/* ===========================
-          시간표 그리드
-      ============================ */}
+      {/* ===== 시간표 ===== */}
       <View style={styles.timetable}>
-        {/* 요일 헤더 */}
         <View style={styles.row}>
           <View style={[styles.cell, styles.headerCell]} />
           {DAYS.map((day) => (
@@ -80,7 +79,6 @@ const EditTimetableScreen: React.FC = () => {
           ))}
         </View>
 
-        {/* 시간 + 수업칸 */}
         {HOURS.map((hour) => (
           <View key={hour} style={styles.row}>
             <View style={[styles.cell, styles.timeCell]}>
@@ -95,7 +93,11 @@ const EditTimetableScreen: React.FC = () => {
               return (
                 <TouchableOpacity
                   key={day + hour}
-                  style={[styles.cell, styles.classCell, lec && { backgroundColor: '#60A5FA' }]}
+                  style={[
+                    styles.cell,
+                    styles.classCell,
+                    lec && { backgroundColor: '#60A5FA' },
+                  ]}
                   onPress={() => {
                     if (lec) {
                       Alert.alert(
@@ -107,7 +109,7 @@ const EditTimetableScreen: React.FC = () => {
                             text: '삭제',
                             style: 'destructive',
                             onPress: () => {
-                              removeClass(lec.id); // Context에서 삭제
+                              removeClass(lec.id);
                               setSelectedClasses((prev) =>
                                 prev.filter((c) => c.id !== lec.id)
                               );
@@ -126,20 +128,23 @@ const EditTimetableScreen: React.FC = () => {
         ))}
       </View>
 
-      {/* ===========================
-          검색창
-      ============================ */}
+      {/* ===== 검색창 ===== */}
       <Text style={styles.label}>강의 검색</Text>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="강의명 또는 교수명을 입력하세요"
-        value={searchText}
-        onChangeText={searchLectures}
-      />
 
-      {/* ===========================
-          검색 결과 리스트
-      ============================ */}
+      <View style={styles.searchRow}>
+        <TextInput
+          style={[styles.searchInput, { flex: 1 }]}
+          placeholder="강의명 또는 교수명을 입력하세요"
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+
+        <TouchableOpacity style={styles.searchButton} onPress={searchLectures}>
+          <Text style={styles.searchButtonText}>검색</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ===== 검색 결과 ===== */}
       <View style={styles.list}>
         {searchResults.map((lecture) => (
           <TouchableOpacity
@@ -155,9 +160,7 @@ const EditTimetableScreen: React.FC = () => {
         ))}
       </View>
 
-      {/* ===========================
-          저장 버튼
-      ============================ */}
+      {/* ===== 저장 ===== */}
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
         <Text style={styles.saveText}>완료</Text>
       </TouchableOpacity>
@@ -183,6 +186,45 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 20,
     marginBottom: 10,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#CCC',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+  searchButton: {
+    marginLeft: 10,
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+  },
+  searchButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  list: {
+    marginTop: 12,
+  },
+  listItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderColor: '#EEE',
+  },
+  listTitle: {
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  listSub: {
+    color: '#666',
+    marginTop: 4,
   },
   timetable: {
     borderWidth: 1,
@@ -217,30 +259,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#FFF',
-  },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: '#CCC',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  list: {
-    marginTop: 12,
-  },
-  listItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderColor: '#EEE',
-  },
-  listTitle: {
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  listSub: {
-    color: '#666',
-    marginTop: 4,
   },
   saveButton: {
     backgroundColor: '#2563EB',
