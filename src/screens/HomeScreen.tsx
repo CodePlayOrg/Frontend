@@ -230,63 +230,115 @@ const HomeScreen = () => {
 export default HomeScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { 
+    flex: 1,
+    backgroundColor: '#E8EBFF', // 전체 배경을 파스텔톤으로 변경
+  },
+
   map: { flex: 1 },
 
+  /* 🔍 상단 검색창 */
   searchContainer: {
     position: 'absolute',
-    top: 80,
-    alignSelf: 'center',
+    top: 70,
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 30,
-    paddingHorizontal: 0,
-    borderWidth: 4,
-    borderColor: '#7288FF',
-  },
-  searchInput: { width: 250, height: 40, paddingHorizontal: 10 },
-  searchButton: {
-    backgroundColor: '#7288FF',
-    borderRadius: 30,
+    alignSelf: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    paddingHorizontal: 10,
-    marginLeft: 10,
+    borderRadius: 25,
+    shadowColor: '#6B70FF',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  searchInput: {
+    width: 220,
+    height: 40,
+    fontSize: 15,
+  },
+  searchButton: {
+    backgroundColor: '#6D6DFF',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    shadowColor: '#6D6DFF',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
   },
 
+  /* 🔽 검색 결과 */
   resultsBox: {
     position: 'absolute',
-    top: 130,
+    top: 125,
     width: '80%',
     alignSelf: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 8,
-    maxHeight: 250,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 20,
+    paddingVertical: 12,
+    maxHeight: 260,
+    shadowColor: '#8EA2FF',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  resultItem: { padding: 12 },
-  resultName: { fontSize: 16, fontWeight: '600' },
+  resultItem: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderColor: '#E7E7FF',
+  },
+  resultName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4B4B8A',
+  },
 
+  /* 🔘 하단 버튼들 */
   bottomButtons: {
     position: 'absolute',
-    bottom: 70,
+    bottom: 60,
+    width: '100%',
     flexDirection: 'row',
-    alignSelf: 'center',
-    gap: 150,
+    justifyContent: 'space-evenly',
   },
+
   friendButton: {
-    backgroundColor: '#7288FF',
-    borderRadius: 30,
-    width: 100, height: 100,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 3, borderColor: '#000',
+    backgroundColor: '#8EA2FF',
+    borderRadius: 40,
+    width: 85,
+    height: 85,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#8EA2FF',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
   },
+
   profileButton: {
-    backgroundColor: '#fff',
-    borderRadius: 30,
-    width: 100, height: 100,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 3, borderColor: '#000',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 40,
+    width: 85,
+    height: 85,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#A5B1FF',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  buttonIcon: { width: 45, height: 45, tintColor: '#000' },
-  buttonIcon_ME: { width: 60, height: 60, tintColor: '#000' },
+
+  buttonIcon: { 
+    width: 38, 
+    height: 38, 
+    tintColor: '#4B4B4B' 
+  },
+
+  buttonIcon_ME: { 
+    width: 50, 
+    height: 50, 
+    tintColor: '#4B4B4B' 
+  },
 });
