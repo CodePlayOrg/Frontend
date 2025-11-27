@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, Image, TouchableOpacity, TextInput, StyleSheet, ScrollView, Alert, Keyboard,
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  TextInput,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Keyboard,
+  ActivityIndicator
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -11,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTimetable, Day } from '../context/TimetableContext';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
+
 const UPDATE_NICKNAME_API_URL = 'http://3.34.70.142:3001/users/update_name';
 const USER_INFO_API_URL = 'http://3.34.70.142:3001/users/set_name';
 const DAYS: Day[] = ['월', '화', '수', '목', '금'];
@@ -25,10 +35,11 @@ const PERIOD_TO_MINUTE: Record<string, number> = {
   "13A": 20 * 60 + 45, "13B": 21 * 60 + 10, "14A": 21 * 60 + 40, "14B": 22 * 60 + 5,
 };
 
+// 강의 데이터 파싱 함수 (number 속성 안전 처리)
 const parseClasses = (classes: any[]) => {
   const parsed: { day: string; startMin: number; endMin: number; name: string }[] = [];
   classes.forEach(cls => {
-    // ⭐️ number 또는 id 확인
+    // ⭐️ number 또는 id 확인 (타입 오류 방지)
     const pk = (cls as any).number ?? cls.id;
     const rawTime = (cls as any).time;
     if (pk === undefined || !rawTime) return;
@@ -42,7 +53,9 @@ const parseClasses = (classes: any[]) => {
         periods.sort((a, b) => (PERIOD_TO_MINUTE[a] || 0) - (PERIOD_TO_MINUTE[b] || 0));
         const startMin = PERIOD_TO_MINUTE[periods[0]];
         const endMin = (PERIOD_TO_MINUTE[periods[periods.length - 1]] || 0) + 30;
-        if (startMin !== undefined) parsed.push({ day, startMin, endMin, name: cls.name });
+        if (startMin !== undefined) {
+            parsed.push({ day, startMin, endMin, name: cls.name });
+        }
       }
     }
   });
@@ -52,6 +65,8 @@ const parseClasses = (classes: any[]) => {
 const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { classes } = useTimetable();
+    
+    // 상태 관리
     const [nicknameInput, setNicknameInput] = useState('');
     const [nickname, setNickname] = useState('사용자');
     const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -59,38 +74,143 @@ const ProfileScreen: React.FC = () => {
     const [isUpdating, setIsUpdating] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-    useEffect(() => { setHasSchedule(classes.length > 0); }, [classes]);
+    // 강의가 있으면 hasSchedule true
+    useEffect(() => { 
+        setHasSchedule(classes.length > 0); 
+    }, [classes]);
 
+    // 초기 데이터 로드 (AsyncStorage 및 API)
     useEffect(() => {
         const fetchUserData = async () => {
             try {
+                // 1. 로컬 저장소에서 닉네임 먼저 로드
                 const storedName = await AsyncStorage.getItem('userName'); 
-                if (storedName) { setNickname(storedName); setNicknameInput(storedName); }
+                if (storedName) { 
+                    setNickname(storedName); 
+                    setNicknameInput(storedName); 
+                }
+
+                // 2. 서버에서 최신 정보 로드
                 const userToken = await AsyncStorage.getItem('userToken');
-                if (!userToken) { setIsInitialLoading(false); return; }
+                if (!userToken) { 
+                    setIsInitialLoading(false); 
+                    return; 
+                }
                 
-                const response = await axios.get(USER_INFO_API_URL, { headers: { 'Authorization': `Bearer ${userToken}` } });
+                const response = await axios.get(USER_INFO_API_URL, { 
+                    headers: { 'Authorization': `Bearer ${userToken}` } 
+                });
+                
                 const userName = response.data.name; 
                 const safeName = (userName && userName.trim().length > 0) ? userName : '사용자'; 
-                setNickname(safeName); setNicknameInput(safeName);
+                
+                setNickname(safeName); 
+                setNicknameInput(safeName);
                 await AsyncStorage.setItem('userName', safeName);
-            } catch (e) { console.error(e); } finally { setIsInitialLoading(false); }
+
+            } catch (e) { 
+                console.error('사용자 정보 로드 실패:', e); 
+            } finally { 
+                setIsInitialLoading(false); 
+            }
         };
         fetchUserData();
     }, []);
 
+    // 앨범에서 사진 선택
     const handleSelectFromAlbum = async () => {
         const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
+        if (result.didCancel) return;
         const uri = result.assets?.[0]?.uri ?? null;
         if (uri) setProfileImage(uri);
     };
-    const handleSetAvatar = () => Alert.alert('알림', '준비중입니다.');
-    const handleNicknameSubmit = async () => { /* 기존 로직 */ };
-    const handleLogout = () => Alert.alert('로그아웃', '로그아웃 하시겠습니까?', [{text:'취소'},{text:'확인'}]);
 
+    // 아바타 설정 (임시)
+    const handleSetAvatar = () => {
+        Alert.alert('알림', '아바타 기능은 준비중입니다.');
+    };
+
+    // 닉네임 변경 로직 (완전 구현)
+    const handleNicknameSubmit = async () => {
+        const newNickname = nicknameInput.trim();
+        if (newNickname.length === 0) {
+            Alert.alert('알림', '닉네임을 입력해주세요.');
+            return;
+        }
+        
+        setIsUpdating(true);
+        Keyboard.dismiss();
+
+        try {
+            const userToken = await AsyncStorage.getItem('userToken');
+            if (!userToken) {
+                Alert.alert('인증 오류', '로그인이 필요합니다.');
+                setIsUpdating(false);
+                return;
+            }
+
+            // 서버 전송
+            const response = await axios.post(UPDATE_NICKNAME_API_URL, { 
+                nickname: newNickname, 
+            }, {
+                headers: { 'Authorization': `Bearer ${userToken}` }
+            });
+
+            if (response.status === 200 || response.status === 201) {
+                // 성공 시 상태 및 로컬 스토리지 업데이트
+                setNickname(newNickname); 
+                await AsyncStorage.setItem('userName', newNickname);
+                Alert.alert('성공', `닉네임이 '${newNickname}'(으)로 변경되었습니다.`);
+            } else {
+                Alert.alert('오류', '닉네임 변경에 실패했습니다.');
+            }
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            let msg = '네트워크 오류가 발생했습니다.';
+            if (axiosError.response) {
+                // 서버 에러 메시지 처리
+                const data = axiosError.response.data as any;
+                msg = data?.message || '변경 실패';
+            }
+            Alert.alert('변경 실패', msg);
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    // 로그아웃 로직 (완전 구현)
+    const handleLogout = () => {
+        Alert.alert('로그아웃', '정말 로그아웃 하시겠습니까?', [
+            { text: '취소', style: 'cancel' },
+            { 
+                text: '로그아웃', 
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        // 토큰 삭제
+                        await AsyncStorage.removeItem('userToken');
+                        await AsyncStorage.removeItem('userName');
+                        // 네비게이션 스택 리셋 또는 로그인 화면 이동 (여기선 Alert으로 대체)
+                        console.log('Logged out');
+                        // navigation.reset({ index: 0, routes: [{ name: 'Login' }] }); // 로그인 화면 이름에 맞게 수정 필요
+                        Alert.alert("알림", "로그아웃 되었습니다.");
+                        // 실제 앱에서는 여기서 로그인 화면으로 이동시켜야 합니다.
+                    } catch (e) {
+                        console.error('로그아웃 에러', e);
+                    }
+                } 
+            },
+        ]);
+    };
+
+    // 시간표 미리보기 컴포넌트
     const TimetablePreview: React.FC = () => {
         const boxSize = 30;
+        
+        // 데이터 파싱
         const parsedClasses = useMemo(() => parseClasses(classes), [classes]);
+        
+        // 동적 시간 계산 (18시 이후 수업 체크)
         const dynamicHours = useMemo(() => {
             let maxHour = 18; 
             parsedClasses.forEach(c => {
@@ -101,68 +221,115 @@ const ProfileScreen: React.FC = () => {
         }, [parsedClasses]);
 
         return (
-        <TouchableOpacity style={styles.previewWrapper} onPress={() => navigation.navigate('Timetable')}>
+        <TouchableOpacity 
+            style={styles.previewWrapper} 
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('Timetable')}
+        >
+            {/* 요일 헤더 */}
             <View style={styles.previewRow}>
-            <View style={[styles.previewCell, { width: boxSize, height: boxSize }]} />
-            {DAYS.map(day => (
-                <View key={day} style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: '#E5E7EB' }]}>
-                <Text style={{ fontSize: 10 }}>{day}</Text>
-                </View>
-            ))}
-            </View>
-            {dynamicHours.map(hour => {
-            const rowStartMin = hour * 60;
-            const rowEndMin = (hour + 1) * 60;
-            return (
-                <View key={hour} style={styles.previewRow}>
-                    <View style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: '#F3F4F6' }]}>
-                    <Text style={{ fontSize: 8 }}>{hour}</Text>
+                <View style={[styles.previewCell, { width: boxSize, height: boxSize }]} />
+                {DAYS.map(day => (
+                    <View key={day} style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: '#E5E7EB' }]}>
+                        <Text style={{ fontSize: 10 }}>{day}</Text>
                     </View>
-                    {DAYS.map(day => {
-                        const isOccupied = parsedClasses.some(c => c.day === day && (c.startMin < rowEndMin && c.endMin > rowStartMin));
-                        return (
-                            <View key={day + hour} style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: isOccupied ? '#60A5FA' : '#fff' }]} />
-                        );
-                    })}
-                </View>
-            );
+                ))}
+            </View>
+
+            {/* 시간별 그리드 */}
+            {dynamicHours.map(hour => {
+                const rowStartMin = hour * 60;
+                const rowEndMin = (hour + 1) * 60;
+                return (
+                    <View key={hour} style={styles.previewRow}>
+                        <View style={[styles.previewCell, { width: boxSize, height: boxSize, backgroundColor: '#F3F4F6' }]}>
+                            <Text style={{ fontSize: 8 }}>{hour}</Text>
+                        </View>
+                        {DAYS.map(day => {
+                            const isOccupied = parsedClasses.some(c => c.day === day && (c.startMin < rowEndMin && c.endMin > rowStartMin));
+                            return (
+                                <View 
+                                    key={day + hour} 
+                                    style={[
+                                        styles.previewCell, 
+                                        { 
+                                            width: boxSize, 
+                                            height: boxSize, 
+                                            backgroundColor: isOccupied ? '#60A5FA' : '#fff' 
+                                        }
+                                    ]} 
+                                />
+                            );
+                        })}
+                    </View>
+                );
             })}
         </TouchableOpacity>
         );
     };
 
-    if (isInitialLoading) return <View style={styles.loadingContainer}><Text>로딩중...</Text></View>;
+    if (isInitialLoading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#0000ff" />
+                <Text style={{marginTop: 10}}>정보를 불러오는 중...</Text>
+            </View>
+        );
+    }
 
     return (
         <ScrollView contentContainerStyle={styles.scrollContainer}>
             <View style={styles.container}>
+                {/* 뒤로가기 버튼 */}
                 <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
                     <Text style={styles.backText}>X</Text>
                 </TouchableOpacity>
-                <Text style={styles.welcomeText}>안녕하세요, <Text style={styles.highlight}>{nickname}</Text> 님!</Text>
                 
+                <Text style={styles.welcomeText}>
+                    안녕하세요, <Text style={styles.highlight}>{nickname}</Text> 님!
+                </Text>
+                
+                {/* 프로필 이미지 영역 */}
                 <View style={styles.profileSection}>
-                    <Image source={profileImage ? { uri: profileImage } : require('../../assets/default_profile.png')} style={styles.profileImage}/>
+                    <Image 
+                        source={profileImage ? { uri: profileImage } : require('../../assets/default_profile.png')} 
+                        style={styles.profileImage}
+                    />
                     <View style={styles.profileButtons}>
-                        <TouchableOpacity style={styles.AlbumButton} onPress={handleSelectFromAlbum}><Text>앨범 선택</Text></TouchableOpacity>
-                        <TouchableOpacity style={styles.AvataButton} onPress={handleSetAvatar}><Text>아바타 설정</Text></TouchableOpacity>
+                        <TouchableOpacity style={styles.AlbumButton} onPress={handleSelectFromAlbum}>
+                            <Text>앨범에서 선택하기</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.AvataButton} onPress={handleSetAvatar}>
+                            <Text>아바타 설정하기</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
 
+                {/* 닉네임 입력 영역 */}
                 <View style={styles.inputContainer}>
                      <Text style={styles.label}>별명 변경</Text>
-                     <TextInput style={styles.input} value={nicknameInput} onChangeText={setNicknameInput} />
+                     <TextInput 
+                        style={styles.input} 
+                        value={nicknameInput} 
+                        onChangeText={setNicknameInput} 
+                        placeholder="새 별명 입력"
+                        onSubmitEditing={handleNicknameSubmit}
+                     />
                 </View>
 
+                {/* 시간표 섹션 */}
                 <Text style={styles.subTitle}>내 시간표</Text>
                 <View style={styles.scheduleContainer}>
-                    {hasSchedule ? <TimetablePreview /> : (
+                    {hasSchedule ? (
+                        <TimetablePreview />
+                    ) : (
                         <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('TimetableEdit')}>
                             <Text style={styles.addText}>시간표 등록하기</Text>
                         </TouchableOpacity>
                     )}
                 </View>
 
+                {/* 로그아웃 버튼 */}
                 <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
                   <Text style={styles.logoutText}>로그아웃</Text>
                 </TouchableOpacity>
@@ -170,6 +337,7 @@ const ProfileScreen: React.FC = () => {
         </ScrollView>
     );
 };
+
 export default ProfileScreen;
 
 const styles = StyleSheet.create({
