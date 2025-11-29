@@ -5,7 +5,7 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Switch,
+  Switch, // 타입 참조용
   Modal,
   ScrollView,
   Animated,
@@ -19,7 +19,19 @@ import type { RootStackParamList } from '../navigations/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
+// ✅ [사용자 스타일] 색상 상수 적용
+const PRIMARY = '#7288FF';
+
 type FriendStatus = '수업 중' | '수업 없음';
+
+// ✅ [사용자 정의] Course 타입
+type Course = {
+  id: string;
+  name: string;      
+  location: string; 
+  status: 'active' | 'scheduled' | 'finished';
+  time: string;      
+};
 
 type Friend = {
   id: string;
@@ -32,71 +44,64 @@ type Friend = {
 
 type FriendsNav = StackNavigationProp<RootStackParamList, 'Friends'>;
 
-
-const CARD_BORDER = '#C8D3FF';
-const PRIMARY = '#7288FF';
-
 const FriendsScreen: React.FC = () => {
   const navigation = useNavigation<FriendsNav>();
-
   const API_URL = 'http://3.34.70.142:3001/users';
 
-  // ✅ 초기 친구 목록을 빈 배열로 변경
+  // --- [친구의 로직 유지] ---
   const [friends, setFriends] = useState<Friend[]>([]); 
   const [query, setQuery] = useState('');
-  // ✅ 로딩 상태 추가
   const [isLoading, setIsLoading] = useState(true); 
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [newName, setNewName] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
 
-  // 상세 바텀시트 상태
+  // --- [사용자 로직 적용] 상세 데이터 ---
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [friendCourses, setFriendCourses] = useState<Course[] | null>(null);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(null); // 사용자 UI용
 
-  // 바텀시트 애니메이션 & 드래그
   const [sheetAnim] = useState(new Animated.Value(0));
 
+  // 1. 친구 목록 가져오기 (친구 코드)
   const fetchFriends = async () => {
-    // ⚠️ 토큰 키가 'userToken'이라고 가정합니다. 실제 키를 사용하세요.
     const token = await AsyncStorage.getItem('userToken'); 
-
     if (!token) {
       setIsLoading(false);
-      console.error('인증 토큰을 찾을 수 없습니다. 로그인 상태를 확인하세요.');
       return;
     }
-
     try {
-      // ✅ fetch 대신 axios.get 사용
       const response = await axios.get(`${API_URL}/my_friend_list_show`, {
-        headers: {
-          'Content-Type': 'application/json',
-          // ⚠️ 이전에 백엔드는 'token' 헤더를 사용하도록 설계되었으나, 
-          // 요청하신 대로 표준 'Authorization' 헤더를 사용합니다.
-          // 백엔드 코드가 'Authorization' 헤더를 받도록 수정되었는지 확인해야 합니다.
-          'Authorization': `Bearer ${token}`, 
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-
-      // Axios는 응답 데이터가 response.data에 자동으로 담깁니다.
       const data = response.data;
-      
-      // 백엔드가 { my_friend_list_show: Friend[] } 형태를 반환한다고 가정
       if (data.my_friend_list_show) {
         setFriends(data.my_friend_list_show);
       }
     } catch (error) {
-      // Axios는 4xx/5xx 오류 시 catch로 넘어오며, error 객체에 상세 정보가 포함됩니다.
-      if (axios.isAxiosError(error) && error.response) {
-          console.error('친구 목록 Axios 오류! 상태 코드:', error.response.status);
-          console.error('서버 오류 응답 본문:', error.response.data);
-      } else {
-          console.error('친구 목록을 불러오는 데 실패했습니다:', error);
-      }
+      console.error(error);
     } finally {
-      // 로딩 상태 해제
       setIsLoading(false);
+    }
+  };
+
+  // 2. 상세 시간표 가져오기 (사용자 로직 + 친구 Axios)
+  const fetchFriendCourses = async (friendId: string) => {
+    setIsLoadingCourses(true);
+    setFriendCourses(null);
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      // 엔드포인트가 확실하지 않으므로 에러 처리 필수
+      const response = await axios.get(`${API_URL}/${friendId}/courses`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      setFriendCourses(response.data);
+    } catch (error) {
+      setFriendCourses([]); 
+    } finally {
+      setIsLoadingCourses(false);
     }
   };
 
@@ -112,144 +117,68 @@ const FriendsScreen: React.FC = () => {
     );
   }, [friends, query]);
 
-
+  // 로직 함수들 (Toggle, Add)
   const toggleFavorite = (id: string) => {
-    setFriends((prev) =>
-      prev.map((f) =>
-        f.id === id ? { ...f, isFavorite: !f.isFavorite } : f,
-      ),
-    );
+    setFriends((prev) => prev.map((f) => f.id === id ? { ...f, isFavorite: !f.isFavorite } : f));
   };
-
   const toggleSwitch = (id: string) => {
-    setFriends((prev) =>
-      prev.map((f) =>
-        f.id === id ? { ...f, isOn: !f.isOn } : f,
-      ),
-    );
+    setFriends((prev) => prev.map((f) => f.id === id ? { ...f, isOn: !f.isOn } : f));
   };
 
   const handleAddFriend = async () => {
     const name = newName.trim();
     const studentId = newStudentId.trim();
-
-    if (!name || !studentId) {
-      Alert.alert('친구 이름과 학번을 모두 입력해주세요.');
-      return;
-    }
-
-    const token = await AsyncStorage.getItem('userToken');
-
-    if (!token) {
-      Alert.alert('로그인 정보가 유효하지 않습니다.');
-      return;
-    }
+    if (!name || !studentId) { Alert.alert('입력 오류', '이름과 학번을 모두 입력해주세요.'); return; }
     
-    // 💡 API_URL 확인: 현재 'http://localhost:3001/users' 이므로,
-    // 실제 엔드포인트는 '/users/add_friend'가 됩니다.
-    // 백엔드 라우터가 /users 경로에 마운트되어 있다고 가정합니다.
-    const endpoint = `${API_URL}/add_friend`; 
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) return;
 
     try {
-      // 1. 서버에 친구 추가 요청
-      // 백엔드가 name과 studentId를 req.body로 요구하므로 이 둘을 전송합니다.
-      const response = await axios.post(endpoint, {
-        name: name,         // 👈 백엔드에 맞춰 name 전송
-        studentId: studentId, // 👈 백엔드에 맞춰 studentId 전송
+      const response = await axios.post(`${API_URL}/add_friend`, {
+        name, studentId
       }, {
-        headers: {
-          'Content-Type': 'application/json',
-          // ⚠️ 백엔드가 req.headers.token을 요구하므로, 
-          // 헤더 이름을 'token'으로 변경하고 Bearer 프리픽스를 제거합니다.
-          'token': token, 
-        },
+        headers: { 'Content-Type': 'application/json', 'token': token },
       });
-
-      // 2. 서버 응답 처리 (성공 시 res.send(메시지)를 받습니다.)
+      Alert.alert('알림', response.data); 
       
-      // 서버 응답 메시지를 사용자에게 표시
-      const serverMessage = response.data; // 서버가 보낸 문자열 메시지
-      Alert.alert(serverMessage); 
-
-      // 3. 클라이언트 상태 업데이트 (화면에 바로 표시)
-      // 서버에서 친구 추가에 성공했으므로, 현재 목록에 추가합니다.
       const newFriend: Friend = {
         id: Date.now().toString(), 
-        name: name,
-        studentId: studentId,
-        status: '수업 없음',
-        isFavorite: false,
-        isOn: true,
+        name, studentId, status: '수업 없음', isFavorite: false, isOn: true,
       };
-      
       setFriends((prev) => [newFriend, ...prev]);
-      
-      // 4. 입력 필드 초기화 및 모달 닫기
-      setNewName('');
-      setNewStudentId('');
-      setIsAddModalVisible(false);
-
+      setNewName(''); setNewStudentId(''); setIsAddModalVisible(false);
     } catch (error) {
-      let errorMessage = '알 수 없는 오류로 친구 추가에 실패했습니다.';
-      
-      if (axios.isAxiosError(error) && error.response) {
-        console.error('친구 추가 오류:', error.response.status, error.response.data);
-        
-        // 400, 404 등 오류 시 서버에서 보낸 메시지(res.status(400).send('...'))를 사용
-        errorMessage = error.response.data || `서버 오류: ${error.response.status}`;
-      } else {
-        console.error('친구 추가 실패:', error);
-      }
-      Alert.alert(errorMessage);
+      Alert.alert('오류', '친구 추가에 실패했습니다.');
     }
   };
 
   const openDetailSheet = (friend: Friend) => {
     setSelectedFriend(friend);
+    setSelectedFriendId(friend.id);
     setIsDetailVisible(true);
+    fetchFriendCourses(friend.id); // 데이터 로드 트리거
+
     sheetAnim.setValue(300);
-    Animated.timing(sheetAnim, {
-      toValue: 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(sheetAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start();
   };
 
   const closeDetailSheet = () => {
-    Animated.timing(sheetAnim, {
-      toValue: 300,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
+    Animated.timing(sheetAnim, { toValue: 300, duration: 200, useNativeDriver: true }).start(({ finished }) => {
       if (finished) {
         setIsDetailVisible(false);
         setSelectedFriend(null);
+        setSelectedFriendId(null);
       }
     });
   };
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, gesture) => {
-        return Math.abs(gesture.dy) > 4;
-      },
-      onPanResponderMove: (_evt, gesture) => {
-        if (gesture.dy > 0) {
-          sheetAnim.setValue(gesture.dy);
-        }
-      },
+      onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 4,
+      onPanResponderMove: (_evt, gesture) => { if (gesture.dy > 0) sheetAnim.setValue(gesture.dy); },
       onPanResponderRelease: (_evt, gesture) => {
-        if (gesture.dy > 120) {
-          // 충분히 내리면 닫기
-          closeDetailSheet();
-        } else {
-          // 아니라면 다시 원위치
-          Animated.timing(sheetAnim, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }).start();
-        }
+        if (gesture.dy > 120) closeDetailSheet();
+        else Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start();
       },
     }),
   ).current;
@@ -260,16 +189,16 @@ const FriendsScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* 상단 네비게이션 텍스트 영역 (Previous / 친구 보기) */}
+      {/* ✅ [UI 적용] 상단 네비게이션 텍스트 (화살표 포함) */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.previousText}>Previous</Text>
+          <Text style={styles.previousText}>← Previous</Text>
         </TouchableOpacity>
       </View>
 
       <Text style={styles.screenTitle}>친구 보기</Text>
 
-      {/* 중앙 카드 (검색 + 친구 목록) */}
+      {/* ✅ [UI 적용] 중앙 카드 스타일 변경 (사용자 디자인) */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.searchTitle}>친구 검색하기</Text>
@@ -293,10 +222,9 @@ const FriendsScreen: React.FC = () => {
 
         <View style={styles.divider} />
 
-        {/* ✅ 로딩 상태 처리 부분 */}
         {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>친구 목록을 불러오는 중…</Text>
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: PRIMARY }}>목록을 불러오는 중...</Text>
           </View>
         ) : (
         <ScrollView
@@ -313,7 +241,7 @@ const FriendsScreen: React.FC = () => {
                 key={f.id}
                 style={[
                   styles.friendRow,
-                  f.status === '수업 중' && styles.friendRowActive,
+                  f.id === selectedFriendId && styles.friendRowSelected,
                 ]}
                 activeOpacity={0.9}
                 onPress={() => handlePressFriend(f)}
@@ -323,12 +251,7 @@ const FriendsScreen: React.FC = () => {
                   onPress={() => toggleFavorite(f.id)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <Text
-                    style={[
-                      styles.star,
-                      f.isFavorite && styles.starActive,
-                    ]}
-                  >
+                  <Text style={[styles.star, f.isFavorite && styles.starActive]}>
                     {f.isFavorite ? '★' : '☆'}
                   </Text>
                 </TouchableOpacity>
@@ -340,10 +263,19 @@ const FriendsScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                <Switch
-                  value={f.isOn}
-                  onValueChange={() => toggleSwitch(f.id)}
-                />
+                {/* ✅ [UI 적용] 커스텀 애니메이션 토글 버튼 */}
+                <TouchableOpacity
+                   style={[styles.toggleButton, f.isOn && styles.toggleButtonActive]}
+                    activeOpacity={0.8}
+                    onPress={() => toggleSwitch(f.id)}
+                >
+                   <Animated.View
+                      style={[
+                      styles.toggleThumb,
+                      { transform: [{ translateX: f.isOn ? 18 : 0 }] }, 
+                    ]}
+                    />
+                </TouchableOpacity>
               </TouchableOpacity>
             ))
           )}
@@ -358,12 +290,19 @@ const FriendsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setIsAddModalVisible(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.addCardShadow}>
+        <TouchableOpacity 
+            style={styles.modalBackdrop} 
+            activeOpacity={1} 
+            onPress={() => setIsAddModalVisible(false)}
+        >
+          <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={() => {}} 
+              style={styles.addCardShadow} 
+          >
             <View style={styles.addCard}>
               <View style={styles.addCardHeader}>
-                <Text style={styles.addCardTitle}>친구 검색하기</Text>
-                <TouchableOpacity
+                 <TouchableOpacity
                   onPress={() => setIsAddModalVisible(false)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -399,27 +338,24 @@ const FriendsScreen: React.FC = () => {
                 <Text style={styles.addSubmitText}>추가하기</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
-      {/* 친구 상세 바텀시트 모달 */}
+      {/* 상세 바텀시트 모달 */}
       <Modal
         visible={isDetailVisible}
         transparent
         animationType="none"
         onRequestClose={closeDetailSheet}
       >
-        {/* 반투명 배경 제거, 투명 */}
         <View style={styles.detailBackdrop}>
-          {/* 위쪽 투명 영역 (탭하면 닫힘) */}
           <TouchableOpacity
             style={styles.detailBackdropTouchable}
             onPress={closeDetailSheet}
             activeOpacity={1}
           />
 
-          {/* 드래그 가능한 바텀시트 */}
           <Animated.View
             style={[
               styles.detailSheet,
@@ -427,10 +363,8 @@ const FriendsScreen: React.FC = () => {
             ]}
             {...panResponder.panHandlers}
           >
-            {/* 상단 핸들 바(드래그 느낌용) */}
             <View style={styles.handleBar} />
 
-            {/* 헤더: X + 가운데 정렬 이름 */}
             <View style={styles.detailHeaderRow}>
               <TouchableOpacity onPress={closeDetailSheet}>
                 <Text style={styles.detailClose}>✕</Text>
@@ -438,52 +372,47 @@ const FriendsScreen: React.FC = () => {
               <Text style={styles.detailName} numberOfLines={1}>
                 {selectedFriend?.name ?? ''}
               </Text>
-              {/* 오른쪽 빈 뷰로 좌우 균형 맞추기 */}
               <View style={{ width: 24 }} />
             </View>
 
-            {/* 수업 카드들 (예시) */}
+            {/* ✅ [UI 적용] 상세 시간표 동적 렌더링 */}
             <View style={styles.detailCourses}>
-              <View style={[styles.courseCard, styles.courseActive]}>
-                <View style={styles.courseLeft}>
-                  <View style={styles.courseIconCircle}>
-                    <Text style={styles.courseIconText}>◻︎</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.courseTitle}>컴퓨터구조</Text>
-                    <Text style={styles.courseSub}>융복 507</Text>
-                  </View>
-                </View>
-                <View style={styles.courseRight}>
-                  <View style={[styles.courseBadge, styles.courseBadgeActive]}>
-                    <Text style={styles.courseBadgeText}>수업 중</Text>
-                  </View>
-                </View>
-              </View>
+              {isLoadingCourses ? (
+                <Text style={styles.emptyText}>과목 정보를 불러오는 중...</Text>
+              ) : friendCourses && friendCourses.length > 0 ? (
+                friendCourses.map((course) => (
+                  <View 
+                    key={course.id} 
+                    style={[
+                      styles.courseCard, 
+                      course.status === 'active' ? styles.courseActive : styles.courseDark
+                    ]}
+                  >
+                    <Text style={course.status === 'active' ? styles.courseTitle : styles.courseTitleDark}>
+                      {course.name}
+                    </Text>
 
-              <View style={[styles.courseCard, styles.courseDark]}>
-                <View style={styles.courseLeft}>
-                  <View style={styles.courseIconCircleDark}>
-                    <Text style={styles.courseIconTextDark}>◻︎</Text>
+                    <View style={[
+                        styles.courseBadge, 
+                        course.status === 'active' ? styles.badgeActive : styles.badgeDark
+                      ]}>
+                      <Text style={styles.courseBadgeText}>
+                        {course.status === 'active' ? '수업 중' : '수업 예정'}
+                      </Text>
+                    </View>
+                    
+                    <Text style={styles.courseSub}>{course.time}</Text>
+                    <Text style={styles.courseSubDark}>{course.location}</Text>
                   </View>
-                  <View>
-                    <Text style={styles.courseTitleDark}>확률과 통계</Text>
-                    <Text style={styles.courseSubDark}>융복 403</Text>
-                  </View>
-                </View>
-                <View style={styles.courseRight}>
-                  <View style={styles.courseBadge}>
-                    <Text style={styles.courseBadgeText}>14:30 예정</Text>
-                  </View>
-                </View>
-              </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>등록된 시간표가 없습니다.</Text>
+              )}
             </View>
 
-            {/* 위치 공유 + 버튼들 */}
             <View style={styles.detailBottom}>
               <Text style={styles.locationShareText}>위치 공유 중…</Text>
 
-              {/* 여기서 지도에서 보기 버튼처럼 */}
               <TouchableOpacity
                 style={styles.mapButton}
                 activeOpacity={0.9}
@@ -497,11 +426,17 @@ const FriendsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
 
-              {/* 아래에는 가운데 정렬된 시간표 보기 버튼만 */}
               <View style={styles.detailButtonsRow}>
-                <View style={styles.timeTableButton}>
-                  <Text style={styles.timeTableButtonText}>시간표 보기</Text>
-                </View>
+                <TouchableOpacity 
+                    style={styles.timeTableButton}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                        closeDetailSheet();
+                        if (selectedFriend) navigation.navigate('Timetable', { friendId: selectedFriend.id });
+                    }}
+                >
+                   <Text style={styles.timeTableButtonText}>시간표 보기</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </Animated.View>
@@ -513,37 +448,37 @@ const FriendsScreen: React.FC = () => {
 
 export default FriendsScreen;
 
+// ✅ [스타일 전면 교체] 사용자(txt) 파일의 스타일 적용
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F3F5FB',
   },
   topBar: {
-    paddingTop: 50,
-    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingHorizontal: 20,
   },
   previousText: {
     color: '#4A4E71',
     fontSize: 14,
   },
   screenTitle: {
-    marginTop: 6,
-    marginBottom: 18,
+    marginTop: 38,     
+    marginBottom: 38, 
     fontSize: 22,
     fontWeight: '700',
-    paddingHorizontal: 22,
-    color: '#3B3F63',
+    paddingHorizontal: 22, 
+    paddingLeft: 35, 
+    color: PRIMARY, 
   },
-
-  // 메인 카드
   card: {
     marginHorizontal: 20,
-    borderRadius: 24,
+    borderRadius: 10,     
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
-    borderColor: CARD_BORDER,
+    borderColor: PRIMARY, 
     paddingHorizontal: 14,
-    paddingTop: 10,
+    paddingTop: 25,
     paddingBottom: 14,
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -552,13 +487,14 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   cardHeader: {
-    paddingHorizontal: 6,
-    paddingBottom: 10,
+    paddingHorizontal: 5,
+    paddingBottom: 8,
   },
   searchTitle: {
-    fontSize: 11,
+    fontSize: 14,
     color: '#9BA2C2',
-    marginBottom: 6,
+    paddingHorizontal: 7,
+    marginBottom: 1,
   },
   searchRow: {
     flexDirection: 'row',
@@ -566,27 +502,26 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F7F8FF',
-    paddingHorizontal: 14,
-    fontSize: 13,
+    height: 45,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 7,
+    fontSize: 20,
   },
   plusButton: {
     marginLeft: 8,
     width: 32,
     height: 32,
     borderRadius: 16,
-    borderWidth: 1.4,
-    borderColor: CARD_BORDER,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
   },
   plusText: {
-    fontSize: 20,
+    fontSize: 25,
     color: PRIMARY,
     marginTop: -2,
+    fontWeight: 'bold',
+    height: 40,
   },
   divider: {
     height: 1,
@@ -594,7 +529,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
     marginBottom: 6,
   },
-
+  friendRowSelected: { 
+    backgroundColor: '#EDF0FF', 
+  },
   friendList: {
     paddingTop: 4,
     paddingBottom: 4,
@@ -606,9 +543,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     marginBottom: 6,
-  },
-  friendRowActive: {
-    backgroundColor: '#EDF0FF',
   },
   starWrap: {
     marginRight: 8,
@@ -641,7 +575,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#777E9E',
   },
-
+  // 커스텀 토글 스타일
+  toggleButton: {
+    width: 42,
+    height: 24,
+    borderRadius: 12,
+    padding: 3,
+    justifyContent: 'center',
+    backgroundColor: '#C0C5E0', 
+  },
+  toggleButtonActive: {
+    backgroundColor: PRIMARY, 
+  },
+  toggleThumb: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF', 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 1,
+    elevation: 1,
+  },
   // 친구 추가 모달
   modalBackdrop: {
     flex: 1,
@@ -710,12 +666,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-
-  // 상세 바텀시트 모달
+  // 상세 바텀시트
   detailBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'transparent', // 🔹 반투명 검정 제거
+    backgroundColor: 'transparent',
   },
   detailBackdropTouchable: {
     flex: 1,
@@ -753,9 +708,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#2B3153',
-    textAlign: 'center', // 🔹 가운데 정렬
+    textAlign: 'center', 
   },
-
   detailCourses: {
     marginTop: 8,
   },
@@ -772,40 +726,6 @@ const styles = StyleSheet.create({
   },
   courseDark: {
     backgroundColor: '#13172C',
-  },
-  courseLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  courseRight: {
-    marginLeft: 8,
-  },
-  courseIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#2F3659',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  courseIconText: {
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  courseIconCircleDark: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#252C4B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  courseIconTextDark: {
-    fontSize: 16,
-    color: '#FFFFFF',
   },
   courseTitle: {
     fontSize: 14,
@@ -833,14 +753,16 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: '#2E3456',
   },
-  courseBadgeActive: {
-    backgroundColor: '#E86E79',
+  badgeActive: {
+    backgroundColor: '#E86E79', 
+  },
+  badgeDark: {
+    backgroundColor: '#2E3456', 
   },
   courseBadgeText: {
     fontSize: 11,
     color: '#FFFFFF',
   },
-
   detailBottom: {
     marginTop: 12,
   },
@@ -849,7 +771,6 @@ const styles = StyleSheet.create({
     color: '#858AB0',
     marginBottom: 8,
   },
-
   mapButton: {
     height: 40,
     borderRadius: 20,
@@ -863,8 +784,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
-
-  // 아래에는 시간표 보기 버튼만, 가운데 정렬
   detailButtonsRow: {
     alignItems: 'center',
   },
@@ -879,17 +798,6 @@ const styles = StyleSheet.create({
   timeTableButtonText: {
     fontSize: 13,
     color: '#4A4E71',
-    fontWeight: '500',
-  },
-  loadingContainer: { // ✅ 추가된 스타일
-    paddingVertical: 40,
-    alignItems: 'center',
-    height: 200, // 카드의 최소 높이를 유지하기 위해 적절히 설정
-    justifyContent: 'center',
-  },
-  loadingText: { // ✅ 추가된 스타일
-    fontSize: 14,
-    color: PRIMARY, // PRIMARY는 상단에 정의된 '#7288FF'
     fontWeight: '500',
   },
 });

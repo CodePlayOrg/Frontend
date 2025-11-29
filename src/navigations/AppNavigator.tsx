@@ -11,13 +11,14 @@ import TimetableScreen from '../screens/TimetableScreen';
 import TimetableEditScreen from '../screens/EditTimetableScreen';
 
 export type RootStackParamList = {
+  
   Start: undefined;
   Signup: undefined;
   Login: undefined;
-  Home: undefined;
+  Home: { searchQuery?: string } | undefined;
   Profile : undefined;
   Friends: undefined;
-  Timetable: undefined;
+  Timetable: { friendId?: string } | undefined;
   TimetableEdit: undefined;
 };
 
