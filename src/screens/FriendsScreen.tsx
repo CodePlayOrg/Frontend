@@ -15,36 +15,91 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../navigations/AppNavigator';
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-// ⭐️ [추가] 웹소켓 훅 가져오기
-import { useWebSocket } from '../context/WebSocketContext';
-
 const PRIMARY = '#7288FF';
+const API_URL = 'http://3.34.70.142:3001/users';
+
+// ⭐️ [건물명 추출 함수]
+const getBuildingName = (location: string): string => {
+    if (!location || location === '장소 미정') return '';
+    let cleanLoc = location.replace(/산격동캠퍼스|상주캠퍼스|동인동캠퍼스/g, '').trim();
+    if (cleanLoc.includes('(')) cleanLoc = cleanLoc.split('(')[0].trim();
+    const parts = cleanLoc.split(' ').filter((p: string) => p.trim() !== '');
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const part = parts[i];
+        if (!part.match(/^[\d-]+호?$/) && !part.match(/^[A-Z]?\d+$/)) {
+            return part.replace(/\d+호?$/, ''); 
+        }
+    }
+    return location;
+};
+
+// ⭐️ [시간표 매핑 데이터]
+const PERIOD_TO_MINUTE: Record<string, { start: number; end: number }> = {
+  "1":  { start: 9 * 60, end: 10 * 60 },
+  "2":  { start: 10 * 60, end: 11 * 60 },
+  "3":  { start: 11 * 60, end: 12 * 60 },
+  "4":  { start: 12 * 60, end: 13 * 60 },
+  "5":  { start: 13 * 60, end: 14 * 60 },
+  "6":  { start: 14 * 60, end: 15 * 60 },
+  "7":  { start: 15 * 60, end: 16 * 60 },
+  "8":  { start: 16 * 60, end: 17 * 60 },
+  "9":  { start: 17 * 60, end: 18 * 60 },
+  "10": { start: 18 * 60, end: 18 * 60 + 50 },
+  "11": { start: 18 * 60 + 55, end: 19 * 60 + 45 },
+  "12": { start: 19 * 60 + 50, end: 20 * 60 + 40 }, 
+  "13": { start: 20 * 60 + 45, end: 21 * 60 + 35 },
+  "14": { start: 21 * 60 + 40, end: 22 * 60 + 30 },
+  "1A": { start: 9 * 60, end: 9 * 60 + 50 }, "1B": { start: 9 * 60 + 30, end: 10 * 60 + 15 },
+  "12A": { start: 19 * 60 + 50, end: 20 * 60 + 40 }, "12B": { start: 20 * 60 + 15, end: 21 * 60 + 15 },
+};
 
 type FriendStatus = '수업 중' | '수업 없음';
 
 type Friend = {
-  id: string; // username
+  id: string; 
   name: string;
   studentId: string;
-  status: FriendStatus;
+  status: string;
   isFavorite: boolean;
-  isOn: boolean; // 위치 공유 허용 여부
+  isOn: boolean; 
+};
+
+type TimeTableItem = {
+    name: string;
+    time: string;
+    location: string;
 };
 
 type FriendsNav = StackNavigationProp<RootStackParamList, 'Friends'>;
 
+// ⭐️ [로직 이동] 컴포넌트 밖에서도 쓸 수 있도록 getCurrentClass를 밖으로 뺐습니다.
+const getCurrentClass = (timetable: TimeTableItem[]) => {
+    const now = new Date();
+    const dayMap = ['일', '월', '화', '수', '목', '금', '토'];
+    const today = dayMap[now.getDay()]; 
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    for (const cls of timetable) {
+        if (!cls.time) continue;
+        if (cls.time.includes(today)) {
+            for (const [key, range] of Object.entries(PERIOD_TO_MINUTE)) {
+                if (cls.time.includes(key)) {
+                    if (currentMinutes >= range.start && currentMinutes <= range.end) {
+                        return cls; 
+                    }
+                }
+            }
+        }
+    }
+    return null;
+};
+
 const FriendsScreen: React.FC = () => {
   const navigation = useNavigation<FriendsNav>();
-  const API_URL = 'http://3.34.70.142:3001/users';
 
-  // ⭐️ [추가] 실시간 친구 위치 데이터 가져오기
-  const { friendLocations } = useWebSocket();
-
-  // --- 상태 관리 ---
   const [friends, setFriends] = useState<Friend[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -57,7 +112,9 @@ const FriendsScreen: React.FC = () => {
   const [isDetailVisible, setIsDetailVisible] = useState(false);
   const [sheetAnim] = useState(new Animated.Value(0));
 
-  // 1. 친구 목록 가져오기 (토글 상태 반영됨)
+  const [realTimeStatus, setRealTimeStatus] = useState<string>('');
+
+  // ⭐️ [핵심 수정] 친구 목록 로드 시, 시간표도 함께 조회하여 초기 상태 결정
   const fetchFriends = async () => {
     const token = await AsyncStorage.getItem('userToken');
     if (!token) {
@@ -71,19 +128,43 @@ const FriendsScreen: React.FC = () => {
 
       const data = response.data;
       if (data.my_friend_list_show) {
-        const mappedFriends: Friend[] = data.my_friend_list_show.map((item: any, index: number) => ({
-          id: item.username || `temp_${index}`, 
-          name: item.name || '이름 없음',
-          studentId: item.studentId || '',
-          status: item.status || '수업 없음',
-          isFavorite: false, 
-          // ⭐️ 서버에서 준 isLocationShared 값을 사용 (없으면 false)
-          isOn: item.isLocationShared === true, 
+        const rawList = data.my_friend_list_show;
+
+        // Promise.all을 사용하여 병렬로 모든 친구의 상태를 확인
+        const friendsWithStatus = await Promise.all(rawList.map(async (item: any, index: number) => {
+            const friendId = item.username || `temp_${index}`;
+            let initialStatus = '수업 없음'; // 기본값
+
+            // 시간표 API 호출하여 실제 상태 확인
+            try {
+                const timeRes = await axios.get(`${API_URL}/timetable/${friendId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const timetable: TimeTableItem[] = timeRes.data.timetable || [];
+                const currentCls = getCurrentClass(timetable);
+                
+                if (currentCls) {
+                    initialStatus = '수업 중'; // 실제 수업이 있으면 상태 변경
+                }
+            } catch (e) {
+                // 시간표 로드 실패 시 기본값 유지
+                // console.log(`Failed to load timetable for ${item.name}`);
+            }
+
+            return {
+                id: friendId,
+                name: item.name || '이름 없음',
+                studentId: item.studentId || '',
+                status: initialStatus, // 계산된 초기 상태 적용
+                isFavorite: false,
+                isOn: item.isLocationShared || false,
+            };
         }));
-         setFriends(mappedFriends);
+
+        setFriends(friendsWithStatus);
       }
     } catch (error) {
-      console.error("친구 목록 로드 실패:", error);
+      console.error("친구 로드 실패:", error);
     } finally {
       setIsLoading(false);
     }
@@ -93,75 +174,92 @@ const FriendsScreen: React.FC = () => {
     fetchFriends();
   }, []);
 
+  // 상세 시트 오픈 시 재확인 (혹시 그 사이 수업이 끝났거나 시작했을 수 있으므로 유지)
+  useEffect(() => {
+    if (isDetailVisible && selectedFriend) {
+        setRealTimeStatus(selectedFriend.status); // 일단 목록에 있던 상태 보여줌
+        
+        const checkRealTimeStatus = async () => {
+            try {
+                const token = await AsyncStorage.getItem('userToken');
+                const res = await axios.get(`${API_URL}/timetable/${selectedFriend.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const timetable: TimeTableItem[] = res.data.timetable || [];
+                const cls = getCurrentClass(timetable);
+
+                if (cls) {
+                    const statusText = `수업 중 (${cls.location})`;
+                    setRealTimeStatus(statusText);
+                    setFriends(prev => prev.map(f => 
+                        f.id === selectedFriend.id ? { ...f, status: '수업 중' } : f
+                    ));
+                } else {
+                    setRealTimeStatus('수업 없음');
+                    setFriends(prev => prev.map(f => 
+                        f.id === selectedFriend.id ? { ...f, status: '수업 없음' } : f
+                    ));
+                }
+            } catch (e) {
+                console.log("실시간 상태 확인 실패", e);
+            }
+        };
+        checkRealTimeStatus();
+    }
+  }, [isDetailVisible, selectedFriend]);
+
+
   const filteredFriends = useMemo(() => {
     const trimmed = query.trim();
     if (!trimmed) return friends;
-    return friends.filter((f) =>
-      f.name.toLowerCase().includes(trimmed.toLowerCase())
-    );
+    return friends.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase()));
   }, [friends, query]);
 
   const toggleFavorite = (id: string) => {
     setFriends((prev) => prev.map((f) => f.id === id ? { ...f, isFavorite: !f.isFavorite } : f));
   };
 
-  // ⭐️ 위치 공유 스위치 토글 (서버 저장)
-  const toggleSwitch = async (friendId: string) => {
-    const targetFriend = friends.find(f => f.id === friendId);
-    if (!targetFriend) return;
-
-    const newState = !targetFriend.isOn;
-
-    // UI 먼저 업데이트
-    setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: newState } : f));
-
-    try {
-        const token = await AsyncStorage.getItem('userToken');
-        await axios.post(`${API_URL}/location/share`, {
-            friendId: friendId,
-            isShared: newState
-        }, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        console.log(`스위치 변경 성공: ${friendId} -> ${newState}`);
-    } catch (e) {
-        Alert.alert("오류", "설정 변경에 실패했습니다.");
-        // 실패 시 롤백
-        setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: !newState } : f));
-    }
+  const toggleSwitch = (friendId: string) => {
+      setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: !f.isOn } : f));
   };
 
-  // ⭐️ [수정됨] 웹소켓 데이터로 실시간 위치 확인
-  const handleViewRealtimeLocation = () => {
+  // 지도 위치 찾기
+  const handleFindClassLocation = async () => {
       if (!selectedFriend) return;
 
-      // 1. WebSocketContext에 저장된 친구의 최신 위치 확인
-      const liveLocation = friendLocations[selectedFriend.id];
-
-      if (liveLocation) {
-          closeDetailSheet();
-          console.log(`📍 친구(${selectedFriend.name}) 위치 발견:`, liveLocation);
-          
-          // 2. Home 화면으로 이동하며 좌표 전달
-          navigation.navigate('Home', { 
-              friendLocation: { 
-                  lat: liveLocation.latitude, 
-                  lng: liveLocation.longitude, 
-                  name: selectedFriend.name 
-              } 
+      try {
+          const token = await AsyncStorage.getItem('userToken');
+          const res = await axios.get(`${API_URL}/timetable/${selectedFriend.id}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
           });
-      } else {
-          // 3. 데이터가 없으면 (친구가 오프라인이거나 위치 공유 안 함)
-          Alert.alert(
-              "위치 확인 불가", 
-              `${selectedFriend.name} 님의 실시간 위치 정보가 없습니다.\n(친구가 위치 공유를 허용하지 않았습니다.)`
-          );
+
+          const timetable: TimeTableItem[] = res.data.timetable || [];
+          const currentClass = getCurrentClass(timetable);
+
+          if (currentClass) {
+              closeDetailSheet();
+              const extractedBuilding = getBuildingName(currentClass.location);
+              
+              navigation.navigate('Home', { 
+                  searchQuery: extractedBuilding,
+                  friendName: selectedFriend.name      
+              });
+          } else {
+              Alert.alert("수업 없음", `${selectedFriend.name}님은 현재 수업 중이 아닙니다.`);
+          }
+
+      } catch (e) {
+          console.log("시간표 조회 실패:", e);
+          Alert.alert("오류", "친구의 시간표 정보를 불러올 수 없습니다.");
       }
   };
 
+  // 친구 추가
   const handleAddFriend = async () => {
     const name = newName.trim();
     const studentId = newStudentId.trim();
+
     if (!name || !studentId) { 
       Alert.alert('입력 오류', '이름과 학번을 모두 입력해주세요.'); return; 
     }
@@ -195,6 +293,7 @@ const FriendsScreen: React.FC = () => {
       if (finished) {
         setIsDetailVisible(false);
         setSelectedFriend(null);
+        setRealTimeStatus('');
       }
     });
   };
@@ -209,10 +308,6 @@ const FriendsScreen: React.FC = () => {
       },
     }),
   ).current;
-
-  const handlePressFriend = (friend: Friend) => {
-    openDetailSheet(friend);
-  };
 
   return (
     <View style={styles.container}>
@@ -284,10 +379,13 @@ const FriendsScreen: React.FC = () => {
 
                 <View style={styles.friendInfo}>
                   <Text style={styles.friendName}>{f.name}</Text>
-                  <Text style={styles.friendSub}>{f.status}</Text>
+                  {/* 로딩 완료 후 즉시 '수업 중' 상태가 반영됨 */}
+                  <Text style={[
+                      styles.friendSub,
+                      f.status === '수업 중' && { color: PRIMARY, fontWeight: '600' }
+                  ]}>{f.status}</Text>
                 </View>
 
-                {/* 위치 공유 스위치 */}
                 <View style={{ alignItems: 'center', marginRight: 5 }}>
                     <Text style={{fontSize: 10, color: '#8A90AA', marginBottom: 2}}>위치공유</Text>
                     <TouchableOpacity
@@ -380,18 +478,28 @@ const FriendsScreen: React.FC = () => {
 
             <View style={styles.detailBottom}>
               <Text style={styles.locationShareText}>
-                  {selectedFriend?.isOn 
-                    ? `${selectedFriend.name}님에게 내 위치를 공유 중입니다.` 
-                    : "현재 위치를 공유하지 않습니다."}
+                  현재 상태: {realTimeStatus || selectedFriend?.status}
               </Text>
 
-              {/* ⭐️ 실시간 위치 보기 버튼 */}
               <TouchableOpacity
                 style={styles.mapButton}
-                onPress={handleViewRealtimeLocation}
+                onPress={handleFindClassLocation}
               >
-                <Text style={styles.mapButtonText}>📍 실시간 위치 보기</Text>
+                <Text style={styles.mapButtonText}>📍 현재 강의실 위치 보기</Text>
               </TouchableOpacity>
+
+              <View style={styles.detailButtonsRow}>
+                <TouchableOpacity
+                    style={styles.timeTableButton}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                        closeDetailSheet();
+                        if (selectedFriend) navigation.navigate('Timetable', { friendId: selectedFriend.id });
+                    }}
+                >
+                   <Text style={styles.timeTableButtonText}>전체 시간표 보기</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </Animated.View>
         </View>
@@ -402,289 +510,55 @@ const FriendsScreen: React.FC = () => {
 
 export default FriendsScreen;
 
-// 스타일 (기존 유지)
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F5FB',
-  },
-  topBar: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-  },
-  previousText: {
-    color: '#4A4E71',
-    fontSize: 14,
-  },
-  screenTitle: {
-    marginTop: 38,    
-    marginBottom: 38,
-    fontSize: 22,
-    fontWeight: '700',
-    paddingHorizontal: 22,
-    paddingLeft: 35,
-    color: PRIMARY,
-  },
-  card: {
-    marginHorizontal: 20,
-    borderRadius: 10,    
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: PRIMARY,
-    paddingHorizontal: 14,
-    paddingTop: 25,
-    paddingBottom: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 14,
-    elevation: 4,
-    flex: 1,
-    marginBottom: 40,
-  },
-  cardHeader: {
-    paddingHorizontal: 5,
-    paddingBottom: 8,
-  },
-  searchTitle: {
-    fontSize: 14,
-    color: '#9BA2C2',
-    paddingHorizontal: 7,
-    marginBottom: 1,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchInput: {
-    flex: 1,
-    height: 45,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 7,
-    fontSize: 18,
-  },
-  plusButton: {
-    marginLeft: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  plusText: {
-    fontSize: 25,
-    color: PRIMARY,
-    marginTop: -2,
-    fontWeight: 'bold',
-    height: 40,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E3E7FF',
-    marginHorizontal: 2,
-    marginBottom: 6,
-  },
-  friendRowSelected: {
-    backgroundColor: '#EDF0FF',
-  },
-  friendList: {
-    paddingTop: 4,
-    paddingBottom: 4,
-  },
-  friendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 12,
-    marginBottom: 6,
-    borderBottomWidth: 0.5,
-    borderColor: '#EEE'
-  },
-  starWrap: {
-    marginRight: 12,
-  },
-  star: {
-    fontSize: 22,
-    color: '#C5CAD8',
-  },
-  starActive: {
-    color: '#FFC107',
-  },
-  friendInfo: {
-    flex: 1,
-  },
-  friendName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2C3050',
-    marginBottom: 4,
-  },
-  friendSub: {
-    fontSize: 12,
-    color: '#8A90AA',
-  },
-  emptyContainer: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#777E9E',
-  },
-  toggleButton: {
-    width: 42,
-    height: 24,
-    borderRadius: 12,
-    padding: 3,
-    justifyContent: 'center',
-    backgroundColor: '#C0C5E0',
-  },
-  toggleButtonActive: {
-    backgroundColor: PRIMARY,
-  },
-  toggleThumb: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 1,
-    elevation: 1,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addCardShadow: {
-    width: '85%',
-  },
-  addCard: {
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-    elevation: 10,
-  },
-  addCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 10,
-  },
-  addCardClose: {
-    fontSize: 20,
-    color: '#A0A6C6',
-    fontWeight: 'bold'
-  },
-  addField: {
-    marginBottom: 15,
-  },
-  addLabel: {
-    fontSize: 13,
-    color: '#6D7392',
-    marginBottom: 5,
-  },
-  addInput: {
-    height: 45,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E1E4F4',
-    paddingHorizontal: 10,
-    fontSize: 14,
-    backgroundColor: '#FBFBFF',
-  },
-  addSubmit: {
-    marginTop: 10,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: PRIMARY,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addSubmitText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  detailBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  detailBackdropTouchable: {
-    flex: 1,
-  },
-  detailSheet: {
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    backgroundColor: '#FFFFFF',
-    padding: 25,
-    paddingBottom: 40,
-    minHeight: 200, 
-  },
-  handleBar: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D0D4EA',
-    marginBottom: 15,
-  },
-  detailHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  detailClose: {
-    fontSize: 20,
-    color: '#A0A6C6',
-  },
-  detailName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#2B3153',
-  },
-  detailBottom: {
-    marginTop: 10,
-    gap: 10,
-  },
-  locationShareText: {
-    fontSize: 14,
-    color: '#858AB0',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  mapButton: {
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: PRIMARY,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mapButtonText: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  detailButtonsRow: {
-    alignItems: 'center',
-  },
-  timeTableButton: {
-    width: '100%',
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: '#E5E7F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  timeTableButtonText: {
-    fontSize: 16,
-    color: '#4A4E71',
-    fontWeight: '500',
-  },
+  container: { flex: 1, backgroundColor: '#F3F5FB' },
+  topBar: { paddingTop: 50, paddingHorizontal: 20 },
+  previousText: { color: '#4A4E71', fontSize: 14 },
+  screenTitle: { marginTop: 38, marginBottom: 38, fontSize: 22, fontWeight: '700', paddingHorizontal: 22, paddingLeft: 35, color: PRIMARY },
+  card: { marginHorizontal: 20, borderRadius: 10, backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: PRIMARY, paddingHorizontal: 14, paddingTop: 25, paddingBottom: 14, shadowColor: '#000', shadowOpacity: 0.08, shadowOffset: { width: 0, height: 8 }, shadowRadius: 14, elevation: 4, flex: 1, marginBottom: 40 },
+  cardHeader: { paddingHorizontal: 5, paddingBottom: 8 },
+  searchTitle: { fontSize: 14, color: '#9BA2C2', paddingHorizontal: 7, marginBottom: 1 },
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  searchInput: { flex: 1, height: 45, backgroundColor: '#FFFFFF', paddingHorizontal: 7, fontSize: 18 },
+  plusButton: { marginLeft: 8, width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  plusText: { fontSize: 25, color: PRIMARY, marginTop: -2, fontWeight: 'bold', height: 40 },
+  divider: { height: 1, backgroundColor: '#E3E7FF', marginHorizontal: 2, marginBottom: 6 },
+  friendRowSelected: { backgroundColor: '#EDF0FF' },
+  friendList: { paddingTop: 4, paddingBottom: 4 },
+  friendRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 12, marginBottom: 6, borderBottomWidth: 0.5, borderColor: '#EEE' },
+  starWrap: { marginRight: 12 },
+  star: { fontSize: 22, color: '#C5CAD8' },
+  starActive: { color: '#FFC107' },
+  friendInfo: { flex: 1 },
+  friendName: { fontSize: 16, fontWeight: '600', color: '#2C3050', marginBottom: 4 },
+  friendSub: { fontSize: 12, color: '#8A90AA' },
+  emptyContainer: { paddingVertical: 40, alignItems: 'center' },
+  emptyText: { fontSize: 14, color: '#777E9E' },
+  toggleButton: { width: 42, height: 24, borderRadius: 12, padding: 3, justifyContent: 'center', backgroundColor: '#C0C5E0' },
+  toggleButtonActive: { backgroundColor: PRIMARY },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 1, elevation: 1 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  addCardShadow: { width: '85%' },
+  addCard: { borderRadius: 20, backgroundColor: '#FFFFFF', padding: 20, elevation: 10 },
+  addCardHeader: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 10 },
+  addCardClose: { fontSize: 20, color: '#A0A6C6', fontWeight: 'bold' },
+  addField: { marginBottom: 15 },
+  addLabel: { fontSize: 13, color: '#6D7392', marginBottom: 5 },
+  addInput: { height: 45, borderRadius: 10, borderWidth: 1, borderColor: '#E1E4F4', paddingHorizontal: 10, fontSize: 14, backgroundColor: '#FBFBFF' },
+  addSubmit: { marginTop: 10, height: 50, borderRadius: 12, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  addSubmitText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  detailBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' },
+  detailBackdropTouchable: { flex: 1 },
+  detailSheet: { borderTopLeftRadius: 25, borderTopRightRadius: 25, backgroundColor: '#FFFFFF', padding: 25, paddingBottom: 40, minHeight: 200 },
+  handleBar: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D4EA', marginBottom: 15 },
+  detailHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  detailClose: { fontSize: 20, color: '#A0A6C6' },
+  detailName: { fontSize: 22, fontWeight: 'bold', color: '#2B3153' },
+  detailBottom: { marginTop: 10, gap: 10 },
+  locationShareText: { fontSize: 14, color: '#858AB0', textAlign: 'center', marginBottom: 10 },
+  mapButton: { height: 50, borderRadius: 12, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  mapButtonText: { fontSize: 16, color: '#FFFFFF', fontWeight: '600' },
+  detailButtonsRow: { alignItems: 'center' },
+  timeTableButton: { width: '100%', height: 50, borderRadius: 12, backgroundColor: '#E5E7F3', justifyContent: 'center', alignItems: 'center' },
+  timeTableButtonText: { fontSize: 16, color: '#4A4E71', fontWeight: '600' },
 });
