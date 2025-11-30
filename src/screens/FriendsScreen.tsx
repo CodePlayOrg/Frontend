@@ -15,34 +15,90 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../navigations/AppNavigator';
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-// ⭐️ 웹소켓 훅 가져오기
-import { useWebSocket } from '../context/WebSocketContext';
-
 const PRIMARY = '#7288FF';
+const API_URL = 'http://3.34.70.142:3001/users';
+
+// ⭐️ [건물명 추출 함수]
+const getBuildingName = (location: string): string => {
+    if (!location || location === '장소 미정') return '';
+    let cleanLoc = location.replace(/산격동캠퍼스|상주캠퍼스|동인동캠퍼스/g, '').trim();
+    if (cleanLoc.includes('(')) cleanLoc = cleanLoc.split('(')[0].trim();
+    const parts = cleanLoc.split(' ').filter((p: string) => p.trim() !== '');
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const part = parts[i];
+        if (!part.match(/^[\d-]+호?$/) && !part.match(/^[A-Z]?\d+$/)) {
+            return part.replace(/\d+호?$/, ''); 
+        }
+    }
+    return location;
+};
+
+// ⭐️ [시간표 매핑 데이터]
+const PERIOD_TO_MINUTE: Record<string, { start: number; end: number }> = {
+  "1":  { start: 9 * 60, end: 10 * 60 },
+  "2":  { start: 10 * 60, end: 11 * 60 },
+  "3":  { start: 11 * 60, end: 12 * 60 },
+  "4":  { start: 12 * 60, end: 13 * 60 },
+  "5":  { start: 13 * 60, end: 14 * 60 },
+  "6":  { start: 14 * 60, end: 15 * 60 },
+  "7":  { start: 15 * 60, end: 16 * 60 },
+  "8":  { start: 16 * 60, end: 17 * 60 },
+  "9":  { start: 17 * 60, end: 18 * 60 },
+  "10": { start: 18 * 60, end: 18 * 60 + 50 },
+  "11": { start: 18 * 60 + 55, end: 19 * 60 + 45 },
+  "12": { start: 19 * 60 + 50, end: 20 * 60 + 40 }, 
+  "13": { start: 20 * 60 + 45, end: 21 * 60 + 35 },
+  "14": { start: 21 * 60 + 40, end: 22 * 60 + 30 },
+  "1A": { start: 9 * 60, end: 9 * 60 + 50 }, "1B": { start: 9 * 60 + 30, end: 10 * 60 + 15 },
+  "12A": { start: 19 * 60 + 50, end: 20 * 60 + 40 }, "12B": { start: 20 * 60 + 15, end: 21 * 60 + 15 },
+};
 
 type FriendStatus = '수업 중' | '수업 없음';
 
 type Friend = {
-  id: string; // username
+  id: string; 
   name: string;
   studentId: string;
-  status: FriendStatus;
+  status: string;
   isFavorite: boolean;
   isOn: boolean; 
 };
 
+type TimeTableItem = {
+    name: string;
+    time: string;
+    location: string;
+};
+
 type FriendsNav = StackNavigationProp<RootStackParamList, 'Friends'>;
+
+// ⭐️ [로직 이동] 컴포넌트 밖에서도 쓸 수 있도록 getCurrentClass를 밖으로 뺐습니다.
+const getCurrentClass = (timetable: TimeTableItem[]) => {
+    const now = new Date();
+    const dayMap = ['일', '월', '화', '수', '목', '금', '토'];
+    const today = dayMap[now.getDay()]; 
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    for (const cls of timetable) {
+        if (!cls.time) continue;
+        if (cls.time.includes(today)) {
+            for (const [key, range] of Object.entries(PERIOD_TO_MINUTE)) {
+                if (cls.time.includes(key)) {
+                    if (currentMinutes >= range.start && currentMinutes <= range.end) {
+                        return cls; 
+                    }
+                }
+            }
+        }
+    }
+    return null;
+};
 
 const FriendsScreen: React.FC = () => {
   const navigation = useNavigation<FriendsNav>();
-  const API_URL = 'http://3.34.70.142:3001/users';
-
-  // ⭐️ 실시간 친구 위치 데이터 (전역 상태)
-  const { friendLocations } = useWebSocket();
 
   const [friends, setFriends] = useState<Friend[]>([]);
   const [query, setQuery] = useState('');
@@ -56,6 +112,9 @@ const FriendsScreen: React.FC = () => {
   const [isDetailVisible, setIsDetailVisible] = useState(false);
   const [sheetAnim] = useState(new Animated.Value(0));
 
+  const [realTimeStatus, setRealTimeStatus] = useState<string>('');
+
+  // ⭐️ [핵심 수정] 친구 목록 로드 시, 시간표도 함께 조회하여 초기 상태 결정
   const fetchFriends = async () => {
     const token = await AsyncStorage.getItem('userToken');
     if (!token) {
@@ -69,15 +128,40 @@ const FriendsScreen: React.FC = () => {
 
       const data = response.data;
       if (data.my_friend_list_show) {
-        const mappedFriends: Friend[] = data.my_friend_list_show.map((item: any, index: number) => ({
-          id: item.username || `temp_${index}`, 
-          name: item.name || '이름 없음',
-          studentId: item.studentId || '',
-          status: item.status || '수업 없음',
-          isFavorite: false, 
-          isOn: item.isLocationShared || false, 
+        const rawList = data.my_friend_list_show;
+
+        // Promise.all을 사용하여 병렬로 모든 친구의 상태를 확인
+        const friendsWithStatus = await Promise.all(rawList.map(async (item: any, index: number) => {
+            const friendId = item.username || `temp_${index}`;
+            let initialStatus = '수업 없음'; // 기본값
+
+            // 시간표 API 호출하여 실제 상태 확인
+            try {
+                const timeRes = await axios.get(`${API_URL}/timetable/${friendId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const timetable: TimeTableItem[] = timeRes.data.timetable || [];
+                const currentCls = getCurrentClass(timetable);
+                
+                if (currentCls) {
+                    initialStatus = '수업 중'; // 실제 수업이 있으면 상태 변경
+                }
+            } catch (e) {
+                // 시간표 로드 실패 시 기본값 유지
+                // console.log(`Failed to load timetable for ${item.name}`);
+            }
+
+            return {
+                id: friendId,
+                name: item.name || '이름 없음',
+                studentId: item.studentId || '',
+                status: initialStatus, // 계산된 초기 상태 적용
+                isFavorite: false,
+                isOn: item.isLocationShared || false,
+            };
         }));
-         setFriends(mappedFriends);
+
+        setFriends(friendsWithStatus);
       }
     } catch (error) {
       console.error("친구 로드 실패:", error);
@@ -90,67 +174,94 @@ const FriendsScreen: React.FC = () => {
     fetchFriends();
   }, []);
 
+  // 상세 시트 오픈 시 재확인 (혹시 그 사이 수업이 끝났거나 시작했을 수 있으므로 유지)
+  useEffect(() => {
+    if (isDetailVisible && selectedFriend) {
+        setRealTimeStatus(selectedFriend.status); // 일단 목록에 있던 상태 보여줌
+        
+        const checkRealTimeStatus = async () => {
+            try {
+                const token = await AsyncStorage.getItem('userToken');
+                const res = await axios.get(`${API_URL}/timetable/${selectedFriend.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const timetable: TimeTableItem[] = res.data.timetable || [];
+                const cls = getCurrentClass(timetable);
+
+                if (cls) {
+                    const statusText = `수업 중 (${cls.location})`;
+                    setRealTimeStatus(statusText);
+                    setFriends(prev => prev.map(f => 
+                        f.id === selectedFriend.id ? { ...f, status: '수업 중' } : f
+                    ));
+                } else {
+                    setRealTimeStatus('수업 없음');
+                    setFriends(prev => prev.map(f => 
+                        f.id === selectedFriend.id ? { ...f, status: '수업 없음' } : f
+                    ));
+                }
+            } catch (e) {
+                console.log("실시간 상태 확인 실패", e);
+            }
+        };
+        checkRealTimeStatus();
+    }
+  }, [isDetailVisible, selectedFriend]);
+
+
   const filteredFriends = useMemo(() => {
     const trimmed = query.trim();
     if (!trimmed) return friends;
-    return friends.filter((f) =>
-      f.name.toLowerCase().includes(trimmed.toLowerCase())
-    );
+    return friends.filter((f) => f.name.toLowerCase().includes(trimmed.toLowerCase()));
   }, [friends, query]);
 
   const toggleFavorite = (id: string) => {
     setFriends((prev) => prev.map((f) => f.id === id ? { ...f, isFavorite: !f.isFavorite } : f));
   };
 
-  const toggleSwitch = async (friendId: string) => {
-    const targetFriend = friends.find(f => f.id === friendId);
-    if (!targetFriend) return;
-
-    const newState = !targetFriend.isOn;
-    setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: newState } : f));
-
-    try {
-        const token = await AsyncStorage.getItem('userToken');
-        await axios.post(`${API_URL}/location/share`, {
-            friendId: friendId,
-            isShared: newState
-        }, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-    } catch (e) {
-        Alert.alert("오류", "설정 변경 실패");
-        setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: !newState } : f));
-    }
+  const toggleSwitch = (friendId: string) => {
+      setFriends((prev) => prev.map((f) => f.id === friendId ? { ...f, isOn: !f.isOn } : f));
   };
 
-  // ⭐️ [핵심] 웹소켓 데이터로 실시간 위치 확인
-  const handleViewRealtimeLocation = () => {
+  // 지도 위치 찾기
+  const handleFindClassLocation = async () => {
       if (!selectedFriend) return;
 
-      // 1. WebSocketContext에서 해당 친구의 최신 위치를 찾음
-      const liveLocation = friendLocations[selectedFriend.id];
-
-      if (liveLocation) {
-          closeDetailSheet();
-          // 2. Home 화면으로 좌표 즉시 전달
-          navigation.navigate('Home', { 
-              friendLocation: { 
-                  lat: liveLocation.latitude, 
-                  lng: liveLocation.longitude, 
-                  name: selectedFriend.name 
-              } 
+      try {
+          const token = await AsyncStorage.getItem('userToken');
+          const res = await axios.get(`${API_URL}/timetable/${selectedFriend.id}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
           });
-      } else {
-          // 3. 데이터가 없으면 (친구가 오프라인이거나 위치 전송 안 함)
-          Alert.alert("위치 확인 불가", `${selectedFriend.name}님의 실시간 위치 정보가 없습니다.\n(친구가 앱을 켜지 않았거나 위치 공유를 껐을 수 있습니다.)`);
+
+          const timetable: TimeTableItem[] = res.data.timetable || [];
+          const currentClass = getCurrentClass(timetable);
+
+          if (currentClass) {
+              closeDetailSheet();
+              const extractedBuilding = getBuildingName(currentClass.location);
+              
+              navigation.navigate('Home', { 
+                  searchQuery: extractedBuilding,
+                  friendName: selectedFriend.name      
+              });
+          } else {
+              Alert.alert("수업 없음", `${selectedFriend.name}님은 현재 수업 중이 아닙니다.`);
+          }
+
+      } catch (e) {
+          console.log("시간표 조회 실패:", e);
+          Alert.alert("오류", "친구의 시간표 정보를 불러올 수 없습니다.");
       }
   };
 
+  // 친구 추가
   const handleAddFriend = async () => {
     const name = newName.trim();
     const studentId = newStudentId.trim();
+
     if (!name || !studentId) { 
-      Alert.alert('입력 오류', '이름과 학번을 입력하세요.'); return; 
+      Alert.alert('입력 오류', '이름과 학번을 모두 입력해주세요.'); return; 
     }
     const token = await AsyncStorage.getItem('userToken');
     if (!token) return;
@@ -182,6 +293,7 @@ const FriendsScreen: React.FC = () => {
       if (finished) {
         setIsDetailVisible(false);
         setSelectedFriend(null);
+        setRealTimeStatus('');
       }
     });
   };
@@ -196,10 +308,6 @@ const FriendsScreen: React.FC = () => {
       },
     }),
   ).current;
-
-  const handlePressFriend = (friend: Friend) => {
-    openDetailSheet(friend);
-  };
 
   return (
     <View style={styles.container}>
@@ -240,7 +348,10 @@ const FriendsScreen: React.FC = () => {
              <Text style={{ color: PRIMARY, marginTop: 5 }}>로딩 중...</Text>
           </View>
         ) : (
-        <ScrollView contentContainerStyle={styles.friendList} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.friendList}
+          showsVerticalScrollIndicator={false}
+        >
           {filteredFriends.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>친구가 없습니다.</Text>
@@ -249,28 +360,45 @@ const FriendsScreen: React.FC = () => {
             filteredFriends.map((f) => (
               <TouchableOpacity
                 key={f.id} 
-                style={[styles.friendRow, selectedFriend?.id === f.id && styles.friendRowSelected]}
+                style={[
+                  styles.friendRow,
+                  selectedFriend?.id === f.id && styles.friendRowSelected,
+                ]}
                 activeOpacity={0.9}
                 onPress={() => openDetailSheet(f)}
               >
-                <TouchableOpacity style={styles.starWrap} onPress={() => toggleFavorite(f.id)}>
-                  <Text style={[styles.star, f.isFavorite && styles.starActive]}>{f.isFavorite ? '★' : '☆'}</Text>
+                <TouchableOpacity
+                  style={styles.starWrap}
+                  onPress={() => toggleFavorite(f.id)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={[styles.star, f.isFavorite && styles.starActive]}>
+                    {f.isFavorite ? '★' : '☆'}
+                  </Text>
                 </TouchableOpacity>
+
                 <View style={styles.friendInfo}>
                   <Text style={styles.friendName}>{f.name}</Text>
-                  <Text style={styles.friendSub}>{f.status}</Text>
+                  {/* 로딩 완료 후 즉시 '수업 중' 상태가 반영됨 */}
+                  <Text style={[
+                      styles.friendSub,
+                      f.status === '수업 중' && { color: PRIMARY, fontWeight: '600' }
+                  ]}>{f.status}</Text>
                 </View>
-                {/* 위치 공유 스위치 */}
+
                 <View style={{ alignItems: 'center', marginRight: 5 }}>
                     <Text style={{fontSize: 10, color: '#8A90AA', marginBottom: 2}}>위치공유</Text>
                     <TouchableOpacity
-                        style={[styles.toggleButton, f.isOn && styles.toggleButtonActive]}
+                    style={[styles.toggleButton, f.isOn && styles.toggleButtonActive]}
                         activeOpacity={0.8}
                         onPress={() => toggleSwitch(f.id)}
                     >
                     <Animated.View
-                        style={[styles.toggleThumb, { transform: [{ translateX: f.isOn ? 18 : 0 }] }]}
-                    />
+                        style={[
+                        styles.toggleThumb,
+                        { transform: [{ translateX: f.isOn ? 18 : 0 }] },
+                        ]}
+                        />
                     </TouchableOpacity>
                 </View>
               </TouchableOpacity>
@@ -280,9 +408,18 @@ const FriendsScreen: React.FC = () => {
         )}
       </View>
 
-      {/* 친구 추가 모달 (동일) */}
-      <Modal visible={isAddModalVisible} transparent animationType="fade" onRequestClose={() => setIsAddModalVisible(false)}>
-        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setIsAddModalVisible(false)}>
+      {/* 친구 추가 모달 */}
+      <Modal
+        visible={isAddModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsAddModalVisible(false)}
+      >
+        <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setIsAddModalVisible(false)}
+        >
           <TouchableOpacity activeOpacity={1} style={styles.addCardShadow}>
             <View style={styles.addCard}>
               <View style={styles.addCardHeader}>
@@ -290,6 +427,7 @@ const FriendsScreen: React.FC = () => {
                   <Text style={styles.addCardClose}>✕</Text>
                 </TouchableOpacity>
               </View>
+
               <View style={styles.addField}>
                 <Text style={styles.addLabel}>친구 이름</Text>
                 <TextInput style={styles.addInput} placeholder="입력" value={newName} onChangeText={setNewName} />
@@ -298,6 +436,7 @@ const FriendsScreen: React.FC = () => {
                 <Text style={styles.addLabel}>학번</Text>
                 <TextInput style={styles.addInput} placeholder="입력" value={newStudentId} onChangeText={setNewStudentId} />
               </View>
+
               <TouchableOpacity style={styles.addSubmit} onPress={handleAddFriend}>
                 <Text style={styles.addSubmitText}>추가하기</Text>
               </TouchableOpacity>
@@ -307,25 +446,60 @@ const FriendsScreen: React.FC = () => {
       </Modal>
 
       {/* 상세 바텀시트 */}
-      <Modal visible={isDetailVisible} transparent animationType="none" onRequestClose={closeDetailSheet}>
+      <Modal
+        visible={isDetailVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeDetailSheet}
+      >
         <View style={styles.detailBackdrop}>
-          <TouchableOpacity style={styles.detailBackdropTouchable} onPress={closeDetailSheet} activeOpacity={1} />
-          <Animated.View style={[styles.detailSheet, { transform: [{ translateY: sheetAnim }] }]} {...panResponder.panHandlers}>
+          <TouchableOpacity
+            style={styles.detailBackdropTouchable}
+            onPress={closeDetailSheet}
+            activeOpacity={1}
+          />
+
+          <Animated.View
+            style={[
+              styles.detailSheet,
+              { transform: [{ translateY: sheetAnim }] },
+            ]}
+            {...panResponder.panHandlers}
+          >
             <View style={styles.handleBar} />
+
             <View style={styles.detailHeaderRow}>
-              <TouchableOpacity onPress={closeDetailSheet}><Text style={styles.detailClose}>✕</Text></TouchableOpacity>
+              <TouchableOpacity onPress={closeDetailSheet}>
+                <Text style={styles.detailClose}>✕</Text>
+              </TouchableOpacity>
               <Text style={styles.detailName}>{selectedFriend?.name}</Text>
               <View style={{ width: 24 }} />
             </View>
 
             <View style={styles.detailBottom}>
               <Text style={styles.locationShareText}>
-                  {selectedFriend?.isOn ? "위치 공유 중" : "위치 공유 꺼짐"}
+                  현재 상태: {realTimeStatus || selectedFriend?.status}
               </Text>
-              {/* ⭐️ 웹소켓 기반 실시간 위치 보기 */}
-              <TouchableOpacity style={styles.mapButton} onPress={handleViewRealtimeLocation}>
-                <Text style={styles.mapButtonText}>📍 실시간 위치 보기</Text>
+
+              <TouchableOpacity
+                style={styles.mapButton}
+                onPress={handleFindClassLocation}
+              >
+                <Text style={styles.mapButtonText}>📍 현재 강의실 위치 보기</Text>
               </TouchableOpacity>
+
+              <View style={styles.detailButtonsRow}>
+                <TouchableOpacity
+                    style={styles.timeTableButton}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                        closeDetailSheet();
+                        if (selectedFriend) navigation.navigate('Timetable', { friendId: selectedFriend.id });
+                    }}
+                >
+                   <Text style={styles.timeTableButtonText}>전체 시간표 보기</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </Animated.View>
         </View>
@@ -336,10 +510,9 @@ const FriendsScreen: React.FC = () => {
 
 export default FriendsScreen;
 
-// 스타일 (기존 그대로)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F5FB' },
-  topBar: { paddingTop: 10, paddingHorizontal: 20 },
+  topBar: { paddingTop: 50, paddingHorizontal: 20 },
   previousText: { color: '#4A4E71', fontSize: 14 },
   screenTitle: { marginTop: 38, marginBottom: 38, fontSize: 22, fontWeight: '700', paddingHorizontal: 22, paddingLeft: 35, color: PRIMARY },
   card: { marginHorizontal: 20, borderRadius: 10, backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: PRIMARY, paddingHorizontal: 14, paddingTop: 25, paddingBottom: 14, shadowColor: '#000', shadowOpacity: 0.08, shadowOffset: { width: 0, height: 8 }, shadowRadius: 14, elevation: 4, flex: 1, marginBottom: 40 },
@@ -385,4 +558,7 @@ const styles = StyleSheet.create({
   locationShareText: { fontSize: 14, color: '#858AB0', textAlign: 'center', marginBottom: 10 },
   mapButton: { height: 50, borderRadius: 12, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
   mapButtonText: { fontSize: 16, color: '#FFFFFF', fontWeight: '600' },
+  detailButtonsRow: { alignItems: 'center' },
+  timeTableButton: { width: '100%', height: 50, borderRadius: 12, backgroundColor: '#E5E7F3', justifyContent: 'center', alignItems: 'center' },
+  timeTableButtonText: { fontSize: 16, color: '#4A4E71', fontWeight: '600' },
 });

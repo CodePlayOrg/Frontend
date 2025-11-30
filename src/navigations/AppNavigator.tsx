@@ -17,6 +17,7 @@ export type RootStackParamList = {
   Login: undefined;
   Home: { 
     searchQuery?: string; 
+    friendName?: string; 
     friendLocation?: { 
       lat: number; 
       lng: number; 
