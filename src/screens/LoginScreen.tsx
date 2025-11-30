@@ -38,6 +38,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
         const { token } = response.data; // data는 response.json() 또는 response.data 입니다.
 
         await AsyncStorage.setItem('userToken', token);
+        await AsyncStorage.setItem('userName', id);
 // 토큰을 'userToken'이라는 키로 AsyncStorage에 저장합니다.
         console.log('로그인 성공:', response.data); 
         
