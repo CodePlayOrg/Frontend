@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigations/AppNavigator';
 import axios, { AxiosError } from 'axios';
@@ -21,8 +21,8 @@ import { useTimetable, Day } from '../context/TimetableContext';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
-const UPDATE_NICKNAME_API_URL = 'http://3.34.70.142:3001/users/update_name';
-const USER_INFO_API_URL = 'http://3.34.70.142:3001/users/set_name';
+// 🔹 API 주소 설정
+const API_BASE_URL = 'http://3.34.70.142:3001/users';
 const DAYS: Day[] = ['월', '화', '수', '목', '금'];
 
 const PERIOD_TO_MINUTE: Record<string, number> = {
@@ -35,11 +35,10 @@ const PERIOD_TO_MINUTE: Record<string, number> = {
   "13A": 20 * 60 + 45, "13B": 21 * 60 + 10, "14A": 21 * 60 + 40, "14B": 22 * 60 + 5,
 };
 
-// 강의 데이터 파싱 함수 (number 속성 안전 처리)
+// 강의 데이터 파싱 함수 (안전하게 처리)
 const parseClasses = (classes: any[]) => {
   const parsed: { day: string; startMin: number; endMin: number; name: string }[] = [];
   classes.forEach(cls => {
-    // ⭐️ number 또는 id 확인 (타입 오류 방지)
     const pk = (cls as any).number ?? cls.id;
     const rawTime = (cls as any).time;
     if (pk === undefined || !rawTime) return;
@@ -64,7 +63,7 @@ const parseClasses = (classes: any[]) => {
 
 const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const { classes } = useTimetable();
+    // const { classes } = useTimetable(); // ❌ Context 사용 안 함 (DB에서 직접 로드)
     
     // 상태 관리
     const [nicknameInput, setNicknameInput] = useState('');
@@ -73,49 +72,48 @@ const ProfileScreen: React.FC = () => {
     const [hasSchedule, setHasSchedule] = useState<boolean>(false);
     const [isUpdating, setIsUpdating] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    
+    // ⭐️ [신규] DB에서 불러온 시간표 데이터를 저장할 상태
+    const [dbClasses, setDbClasses] = useState<any[]>([]);
 
-    // 강의가 있으면 hasSchedule true
-    useEffect(() => { 
-        setHasSchedule(classes.length > 0); 
-    }, [classes]);
-
-    // 초기 데이터 로드 (AsyncStorage 및 API)
-    useEffect(() => {
-        const fetchUserData = async () => {
-            try {
-                // 1. 로컬 저장소에서 닉네임 먼저 로드
-                const storedName = await AsyncStorage.getItem('userName'); 
-                if (storedName) { 
-                    setNickname(storedName); 
-                    setNicknameInput(storedName); 
+    // ⭐️ [신규] 화면이 포커스될 때마다 DB에서 시간표와 유저 정보 불러오기
+    useFocusEffect(
+        useCallback(() => {
+            const fetchData = async () => {
+                const token = await AsyncStorage.getItem('userToken');
+                if (!token) {
+                    setIsInitialLoading(false);
+                    return;
                 }
 
-                // 2. 서버에서 최신 정보 로드
-                const userToken = await AsyncStorage.getItem('userToken');
-                if (!userToken) { 
-                    setIsInitialLoading(false); 
-                    return; 
-                }
-                
-                const response = await axios.get(USER_INFO_API_URL, { 
-                    headers: { 'Authorization': `Bearer ${userToken}` } 
-                });
-                
-                const userName = response.data.name; 
-                const safeName = (userName && userName.trim().length > 0) ? userName : '사용자'; 
-                
-                setNickname(safeName); 
-                setNicknameInput(safeName);
-                await AsyncStorage.setItem('userName', safeName);
+                try {
+                    // 1. 유저 정보 로드
+                    const userRes = await axios.get(`${API_BASE_URL}/set_name`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    setNickname(userRes.data.name);
+                    setNicknameInput(userRes.data.name);
+                    await AsyncStorage.setItem('userName', userRes.data.name);
 
-            } catch (e) { 
-                console.error('사용자 정보 로드 실패:', e); 
-            } finally { 
-                setIsInitialLoading(false); 
-            }
-        };
-        fetchUserData();
-    }, []);
+                    // 2. ⭐️ 시간표 정보 로드 (DB 연동 핵심)
+                    const timeRes = await axios.get(`${API_BASE_URL}/timetable`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const timetable = timeRes.data.timetable || [];
+                    
+                    setDbClasses(timetable);
+                    setHasSchedule(timetable.length > 0);
+
+                } catch (e) {
+                    console.error('데이터 로드 실패:', e);
+                } finally {
+                    setIsInitialLoading(false);
+                }
+            };
+
+            fetchData();
+        }, [])
+    );
 
     // 앨범에서 사진 선택
     const handleSelectFromAlbum = async () => {
@@ -125,12 +123,11 @@ const ProfileScreen: React.FC = () => {
         if (uri) setProfileImage(uri);
     };
 
-    // 아바타 설정 (임시)
     const handleSetAvatar = () => {
         Alert.alert('알림', '아바타 기능은 준비중입니다.');
     };
 
-    // 닉네임 변경 로직 (완전 구현)
+    // 닉네임 변경
     const handleNicknameSubmit = async () => {
         const newNickname = nicknameInput.trim();
         if (newNickname.length === 0) {
@@ -149,36 +146,25 @@ const ProfileScreen: React.FC = () => {
                 return;
             }
 
-            // 서버 전송
-            const response = await axios.post(UPDATE_NICKNAME_API_URL, { 
+            const response = await axios.post(`${API_BASE_URL}/update_name`, { 
                 nickname: newNickname, 
             }, {
                 headers: { 'Authorization': `Bearer ${userToken}` }
             });
 
             if (response.status === 200 || response.status === 201) {
-                // 성공 시 상태 및 로컬 스토리지 업데이트
                 setNickname(newNickname); 
                 await AsyncStorage.setItem('userName', newNickname);
                 Alert.alert('성공', `닉네임이 '${newNickname}'(으)로 변경되었습니다.`);
-            } else {
-                Alert.alert('오류', '닉네임 변경에 실패했습니다.');
             }
         } catch (error) {
-            const axiosError = error as AxiosError;
-            let msg = '네트워크 오류가 발생했습니다.';
-            if (axiosError.response) {
-                // 서버 에러 메시지 처리
-                const data = axiosError.response.data as any;
-                msg = data?.message || '변경 실패';
-            }
-            Alert.alert('변경 실패', msg);
+            Alert.alert('변경 실패', '오류가 발생했습니다.');
         } finally {
             setIsUpdating(false);
         }
     };
 
-    // 로그아웃 로직 (완전 구현)
+    // 로그아웃
     const handleLogout = () => {
         Alert.alert('로그아웃', '정말 로그아웃 하시겠습니까?', [
             { text: '취소', style: 'cancel' },
@@ -187,14 +173,11 @@ const ProfileScreen: React.FC = () => {
                 style: 'destructive',
                 onPress: async () => {
                     try {
-                        // 토큰 삭제
                         await AsyncStorage.removeItem('userToken');
                         await AsyncStorage.removeItem('userName');
-                        // 네비게이션 스택 리셋 또는 로그인 화면 이동 (여기선 Alert으로 대체)
                         console.log('Logged out');
-                        // navigation.reset({ index: 0, routes: [{ name: 'Login' }] }); // 로그인 화면 이름에 맞게 수정 필요
+                        // 실제로는 로그인 화면으로 이동 처리 필요
                         Alert.alert("알림", "로그아웃 되었습니다.");
-                        // 실제 앱에서는 여기서 로그인 화면으로 이동시켜야 합니다.
                     } catch (e) {
                         console.error('로그아웃 에러', e);
                     }
@@ -203,14 +186,14 @@ const ProfileScreen: React.FC = () => {
         ]);
     };
 
-    // 시간표 미리보기 컴포넌트
+    // ⭐️ 시간표 미리보기 (DB 데이터 사용)
     const TimetablePreview: React.FC = () => {
         const boxSize = 30;
         
-        // 데이터 파싱
-        const parsedClasses = useMemo(() => parseClasses(classes), [classes]);
+        // dbClasses를 사용하여 파싱
+        const parsedClasses = useMemo(() => parseClasses(dbClasses), [dbClasses]);
         
-        // 동적 시간 계산 (18시 이후 수업 체크)
+        // 동적 시간 계산
         const dynamicHours = useMemo(() => {
             let maxHour = 18; 
             parsedClasses.forEach(c => {
@@ -280,7 +263,6 @@ const ProfileScreen: React.FC = () => {
     return (
         <ScrollView contentContainerStyle={styles.scrollContainer}>
             <View style={styles.container}>
-                {/* 뒤로가기 버튼 */}
                 <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
                     <Text style={styles.backText}>X</Text>
                 </TouchableOpacity>
@@ -289,7 +271,6 @@ const ProfileScreen: React.FC = () => {
                     안녕하세요, <Text style={styles.highlight}>{nickname}</Text> 님!
                 </Text>
                 
-                {/* 프로필 이미지 영역 */}
                 <View style={styles.profileSection}>
                     <Image 
                         source={profileImage ? { uri: profileImage } : require('../../assets/default_profile.png')} 
@@ -300,14 +281,13 @@ const ProfileScreen: React.FC = () => {
                             <Text>앨범에서 선택하기</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.AvataButton} onPress={handleSetAvatar}>
-                            <Text>아바타 설정하기</Text>
+                            <Text>  아바타 설정하기</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
 
-                {/* 닉네임 입력 영역 */}
                 <View style={styles.inputContainer}>
-                     <Text style={styles.label}>별명 변경</Text>
+                     <Text style={styles.label}>친구에게 보일 별명 설정하기</Text>
                      <TextInput 
                         style={styles.input} 
                         value={nicknameInput} 
@@ -317,7 +297,6 @@ const ProfileScreen: React.FC = () => {
                      />
                 </View>
 
-                {/* 시간표 섹션 */}
                 <Text style={styles.subTitle}>내 시간표</Text>
                 <View style={styles.scheduleContainer}>
                     {hasSchedule ? (
@@ -329,7 +308,6 @@ const ProfileScreen: React.FC = () => {
                     )}
                 </View>
 
-                {/* 로그아웃 버튼 */}
                 <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
                   <Text style={styles.logoutText}>로그아웃</Text>
                 </TouchableOpacity>
@@ -349,12 +327,12 @@ const styles = StyleSheet.create({
     highlight: { color: '#2563EB' },
     profileSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
     profileImage: { width: 100, height: 100, backgroundColor: '#BFDBFE', borderRadius: 50, borderWidth: 1, borderColor: '#DDD' },
-    profileButtons: { marginLeft: 16 },
-    AlbumButton: { backgroundColor: '#E5E7EB', borderRadius: 8, padding: 10, marginBottom: 8 },
-    AvataButton: { backgroundColor: '#E5E7EB', borderRadius: 8, padding: 10 },
+    profileButtons: { marginLeft: 50 },
+    AlbumButton: { backgroundColor: '#E5E7EB', borderRadius: 10, padding: 10, marginBottom: 8 },
+    AvataButton: { backgroundColor: '#E5E7EB', borderRadius: 10, padding: 10 },
     inputContainer: { marginBottom: 24 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    label: { fontSize: 14, color: '#555', marginBottom: 4 },
+    label: { fontWeight: '600', color: '#555', marginBottom: 4 },
     input: { borderWidth: 1, borderColor: '#CCC', borderRadius: 4, padding: 8 },
     subTitle: { fontWeight: '600', color: '#555', marginBottom: 8, marginTop: 20 },
     scheduleContainer: { backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 32 },
@@ -363,6 +341,6 @@ const styles = StyleSheet.create({
     previewWrapper: { marginTop: 10, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, overflow: 'hidden' },
     previewRow: { flexDirection: 'row' },
     previewCell: { justifyContent: 'center', alignItems: 'center', borderWidth: 0.5, borderColor: '#EEE' },
-    logoutButton: { alignSelf: 'center', backgroundColor: '#FEE2E2', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 30 },
+    logoutButton: { alignSelf: 'center', backgroundColor: '#FEE2E2', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 30, marginTop: 'auto', marginBottom: 40,},
     logoutText: { color: '#DC2626', fontWeight: 'bold' },
 });
