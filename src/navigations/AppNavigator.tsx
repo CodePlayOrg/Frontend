@@ -15,7 +15,14 @@ export type RootStackParamList = {
   Start: undefined;
   Signup: undefined;
   Login: undefined;
-  Home: { searchQuery?: string } | undefined;
+  Home: { 
+    searchQuery?: string; 
+    friendLocation?: { 
+      lat: number; 
+      lng: number; 
+      name: string; 
+    };
+  } | undefined;
   Profile : undefined;
   Friends: undefined;
   Timetable: { friendId?: string } | undefined;
