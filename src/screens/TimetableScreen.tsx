@@ -272,7 +272,7 @@ const TimetableScreen: React.FC = () => {
         {/* 내 시간표일 때만 버튼 표시 */}
         {!friendId && (
             <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('TimetableEdit')}>
-              <Text style={styles.addText}>강의 추가하기</Text>
+              <Text style={styles.addText}>시간표 수정하기</Text>
             </TouchableOpacity>
         )}
       </ScrollView>

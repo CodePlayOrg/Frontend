@@ -17,7 +17,7 @@ type WebSocketContextType = {
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
 
 // ⭐️ 서버 주소 (안드로이드 에뮬레이터: 10.0.2.2, 실기기: 내 PC IP)
-const WS_URL = 'ws://3.34.70.142:3001'; 
+const WS_URL = 'ws://3.34.70.142:8001'; 
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [friendLocations, setFriendLocations] = useState<Record<string, FriendLocation>>({});

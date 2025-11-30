@@ -6,9 +6,10 @@ import Geolocation from '@react-native-community/geolocation';
 
 // 위치 추적 로직을 분리한 컴포넌트
 const LocationTracker = () => {
-  const { sendMyLocation } = useWebSocket();
+  const { sendMyLocation, isConnected } = useWebSocket();
 
   useEffect(() => {
+    if (!isConnected) return;
     const watchId = Geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
