@@ -14,12 +14,12 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-// import { useTimetable } from '../context/TimetableContext'; // ❌ Context 제거
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL = 'http://3.34.70.142:3001/users'; 
-const DAYS = ['월', '화', '수', '목', '금'];
+// ⭐️ [수정됨] 일요일 추가 (테스트용)
+const DAYS = ['일', '월', '화', '수', '목', '금'];
 const CELL_HEIGHT = 40; 
 const TIME_CELL_WIDTH = 35;
 
@@ -53,7 +53,10 @@ const parseClassTime = (classData: any): ParsedClassTime[] => {
   const rawTime = classData.time;
   if (pk === undefined || !rawTime) return [];
   const parsedTimes: ParsedClassTime[] = [];
-  const regex = /([월화수목금])\s*([0-9A-Z,]+)/g;
+  
+  // ⭐️ [수정됨] 정규식에 '일' 요일 포함 (월화수목금 -> 일월화수목금)
+  const regex = /([일월화수목금])\s*([0-9A-Z,]+)/g;
+  
   let match;
   while ((match = regex.exec(String(rawTime))) !== null) {
     const day = match[1]; 
@@ -84,7 +87,7 @@ const getBlockColor = (id: string) => {
 const EditTimetableScreen: React.FC = () => {
   const navigation = useNavigation();
   
-  // ⭐️ Context 대신 로컬 상태(dbClasses) 사용
+
   const [dbClasses, setDbClasses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -92,7 +95,6 @@ const EditTimetableScreen: React.FC = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]); 
   const [timetableWidth, setTimetableWidth] = useState(0); 
 
-  // ⭐️ [신규] 화면 들어올 때 DB에서 내 시간표 불러오기
   useFocusEffect(
     useCallback(() => {
         const fetchMyTimetable = async () => {

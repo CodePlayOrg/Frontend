@@ -19,8 +19,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // 🔹 API 설정
 const API_BASE_URL = 'http://3.34.70.142:3001/users';
 
-type Day = '월' | '화' | '수' | '목' | '금'; 
-const DAYS: Day[] = ['월', '화', '수', '목', '금'];
+// ⭐️ [수정됨] 일요일 추가
+type Day = '일' | '월' | '화' | '수' | '목' | '금'; 
+const DAYS: Day[] = ['일', '월', '화', '수', '목', '금'];
+
 const TIME_COL_WIDTH = 40; 
 const CELL_HEIGHT = 50; 
 
@@ -70,7 +72,9 @@ const parseClasses = (classes: any[]): ParsedClass[] => {
     const pk = (cls as any).number ?? cls.id;
     if (pk === undefined || !rawTime) return;
 
-    const regex = /([월화수목금])\s*([0-9A-Z,]+)/g;
+    // ⭐️ [수정됨] 정규식에 '일' 포함
+    const regex = /([일월화수목금])\s*([0-9A-Z,]+)/g;
+    
     let match;
     while ((match = regex.exec(String(rawTime))) !== null) {
       const day = match[1];
@@ -272,7 +276,7 @@ const TimetableScreen: React.FC = () => {
         {/* 내 시간표일 때만 버튼 표시 */}
         {!friendId && (
             <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('TimetableEdit')}>
-              <Text style={styles.addText}>시간표 수정하기</Text>
+              <Text style={styles.addText}>강의 추가하기</Text>
             </TouchableOpacity>
         )}
       </ScrollView>
